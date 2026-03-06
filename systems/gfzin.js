@@ -2,7 +2,17 @@ const { EmbedBuilder, AuditLogEvent } = require("discord.js");
 
 module.exports = (client) => {
 
-const LOG_CHANNEL = "1479261311635554435";
+// canais de log por servidor
+const LOG_CHANNELS = {
+    "1475590448600056025": "1479569064643919882", // servidor 1
+    "705954733742882907": "1479261311635554435"  // servidor 2
+};
+
+function getLogChannel(guild) {
+    const channelId = LOG_CHANNELS[guild.id];
+    if (!channelId) return null;
+    return guild.channels.cache.get(channelId);
+}
 
 //
 // VOICE LOGS
@@ -10,7 +20,7 @@ const LOG_CHANNEL = "1479261311635554435";
 client.on("voiceStateUpdate", async (oldState, newState) => {
 
 const guild = newState.guild;
-const logChannel = guild.channels.cache.get(LOG_CHANNEL);
+const logChannel = getLogChannel(guild);
 if (!logChannel) return;
 
 let executor = null;
@@ -98,7 +108,6 @@ logChannel.send({ embeds: [embed] });
 
 });
 
-
 //
 // ⛓️ TIMEOUT
 //
@@ -110,7 +119,7 @@ const newTimeout = newMember.communicationDisabledUntilTimestamp;
 if (oldTimeout === newTimeout) return;
 
 const guild = newMember.guild;
-const logChannel = guild.channels.cache.get(LOG_CHANNEL);
+const logChannel = getLogChannel(guild);
 if (!logChannel) return;
 
 setTimeout(async () => {
