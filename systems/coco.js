@@ -20,6 +20,7 @@ const ALLOWED_ROLES = [
   "1467271978313580707",
   "1467272008193671188",
   "1478154024866943199",
+  "1479569171523043525",
 ];
 
 const STOCK_ROLE_ID = "1467271978313580707";
@@ -226,5 +227,6 @@ client.on("interactionCreate", async (interaction) => {
   }
 
 });
+
 
 };
