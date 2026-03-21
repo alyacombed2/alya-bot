@@ -3,7 +3,6 @@ const axios = require('axios');
 const path = require('path');
 const archiver = require('archiver');
 
-// delay
 function sleep(ms) {
     return new Promise(res => setTimeout(res, ms));
 }
@@ -109,7 +108,7 @@ function splitFile(filePath, chunkSize = 20 * 1024 * 1024) {
     return parts;
 }
 
-// 🔥 RESTORE (ANTI TRAVA)
+// 🔥 RESTORE SEM APAGAR
 async function restoreServer(guild) {
     const basePath = `./backup-${guild.id}`;
     const channelsPath = `${basePath}/channels`;
@@ -128,24 +127,32 @@ async function restoreServer(guild) {
         return;
     }
 
-    for (const channel of guild.channels.cache.values()) {
-        await channel.delete().catch(() => {});
-        await sleep(500);
-    }
+    console.log("📁 Restaurando sem apagar canais...");
 
     for (const ch of serverData) {
-        const newChannel = await guild.channels.create({
-            name: ch.name,
-            type: 0
-        });
 
-        await sleep(1000);
+        let existingChannel = guild.channels.cache.find(c => c.name === ch.name);
+
+        let newChannel;
+
+        if (existingChannel) {
+            console.log(`⚠️ Canal já existe: ${ch.name}`);
+            newChannel = existingChannel;
+        } else {
+            newChannel = await guild.channels.create({
+                name: ch.name,
+                type: 0
+            });
+
+            await sleep(1000);
+        }
+
+        const filePathJson = `${channelsPath}/${ch.name}.json`;
+        if (!fs.existsSync(filePathJson)) continue;
 
         let messages;
         try {
-            messages = JSON.parse(
-                fs.readFileSync(`${channelsPath}/${ch.name}.json`)
-            );
+            messages = JSON.parse(fs.readFileSync(filePathJson));
         } catch {
             continue;
         }
@@ -186,26 +193,7 @@ async function restoreServer(guild) {
         }
     }
 
-    console.log("✅ Restore completo!");
+    console.log("✅ Restore finalizado!");
 }
 
-// 🔥 NUKE
-async function nukeComBackup(guild) {
-    await backupServer(guild);
-    await sleep(2000);
-
-    for (const channel of guild.channels.cache.values()) {
-        await channel.delete().catch(() => {});
-    }
-
-    for (let i = 1; i <= 10; i++) {
-        await guild.channels.create({
-            name: `coco-${i}`,
-            type: 0
-        });
-    }
-
-    console.log("💣 Nuke finalizado!");
-}
-
-module.exports = { backupServer, restoreServer, nukeComBackup, zipBackup, splitFile };
+module.exports = { backupServer, restoreServer, zipBackup, splitFile };
