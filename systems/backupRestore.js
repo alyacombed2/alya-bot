@@ -3,6 +3,11 @@ const axios = require('axios');
 const path = require('path');
 const archiver = require('archiver');
 
+// delay
+function sleep(ms) {
+    return new Promise(res => setTimeout(res, ms));
+}
+
 async function backupServer(guild) {
     const basePath = `./backup-${guild.id}`;
     const channelsPath = `${basePath}/channels`;
@@ -90,9 +95,14 @@ async function restoreServer(guild) {
 
     const serverData = JSON.parse(fs.readFileSync(`${basePath}/server.json`));
 
+    console.log("🧹 Limpando servidor...");
+
     for (const channel of guild.channels.cache.values()) {
         await channel.delete().catch(() => {});
+        await sleep(500);
     }
+
+    console.log("📁 Restaurando canais...");
 
     for (const ch of serverData) {
         const newChannel = await guild.channels.create({
@@ -100,38 +110,59 @@ async function restoreServer(guild) {
             type: 0
         });
 
-        const messages = JSON.parse(
-            fs.readFileSync(`${channelsPath}/${ch.name}.json`)
-        );
+        await sleep(1000);
+
+        const filePathJson = `${channelsPath}/${ch.name}.json`;
+        if (!fs.existsSync(filePathJson)) continue;
+
+        let messages = JSON.parse(fs.readFileSync(filePathJson));
+
+        // 🔥 LIMITE PRA NÃO TRAVAR
+        messages = messages.slice(0, 300);
+
+        console.log(`📨 ${ch.name}: ${messages.length} mensagens`);
 
         for (const msg of messages) {
-            let content = `**${msg.author}:** ${msg.content}`;
+            let content = `**${msg.author}:** ${msg.content || ""}`;
 
-            if (msg.attachments.length > 0) {
-                for (const file of msg.attachments) {
-                    const filePath = path.join(filesPath, file);
+            // 🔥 DIVIDE MENSAGEM GRANDE
+            const parts = content.match(/[\s\S]{1,1900}/g) || [];
 
-                    if (fs.existsSync(filePath)) {
-                        await newChannel.send({
-                            content,
-                            files: [filePath]
-                        });
+            for (const part of parts) {
+                try {
+                    if (msg.attachments.length > 0) {
+                        for (const file of msg.attachments) {
+                            const filePath = path.join(filesPath, file);
+
+                            if (fs.existsSync(filePath)) {
+                                await newChannel.send({
+                                    content: part,
+                                    files: [filePath]
+                                });
+                            } else {
+                                await newChannel.send(part + "\n" + file);
+                            }
+
+                            await sleep(1200);
+                        }
                     } else {
-                        await newChannel.send(content + "\n" + file);
+                        await newChannel.send(part);
+                        await sleep(800);
                     }
+                } catch (err) {
+                    console.log("⚠️ Erro:", err.message);
+                    await sleep(2000);
                 }
-            } else {
-                await newChannel.send(content);
             }
         }
     }
 
-    console.log("♻️ Restore completo!");
+    console.log("✅ Restore completo!");
 }
 
 async function nukeComBackup(guild) {
     await backupServer(guild);
-    await new Promise(res => setTimeout(res, 2000));
+    await sleep(2000);
 
     for (const channel of guild.channels.cache.values()) {
         await channel.delete().catch(() => {});
