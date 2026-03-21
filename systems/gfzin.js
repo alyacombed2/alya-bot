@@ -16,14 +16,19 @@ if (!logChannel) return;
 let executor = null;
 
 try {
+
+  // ⏳ Delay pra garantir que o log exista
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
   const logs = await guild.fetchAuditLogs({
-    limit: 5,
+    limit: 10,
     type: AuditLogEvent.MemberMove
   });
 
   const entry = logs.entries.find(e =>
+    e.target &&
     e.target.id === newState.id &&
-    Date.now() - e.createdTimestamp < 5000
+    Date.now() - e.createdTimestamp < 10000
   );
 
   if (entry) executor = entry.executor;
@@ -45,8 +50,8 @@ const embed = new EmbedBuilder()
 .addFields(
   { name: "👤 Usuário", value: `<@${newState.id}>`, inline: true },
   { name: "🛠️ Ação", value: executor ? `Movido por <@${executor.id}>` : "Entrou sozinho", inline: true },
-  { name: "📥 De", value: `${oldState.channel.name}`, inline: true },
-  { name: "📤 Para", value: `${newState.channel.name}`, inline: true }
+  { name: "📥 De", value: `${oldState.channel?.name || "Desconhecido"}`, inline: true },
+  { name: "📤 Para", value: `${newState.channel?.name || "Desconhecido"}`, inline: true }
 )
 .setThumbnail(newState.member.user.displayAvatarURL())
 .setFooter({ text: `ID: ${newState.id}` })
@@ -158,14 +163,16 @@ setTimeout(async () => {
 let executor = null;
 
 try {
+
   const logs = await guild.fetchAuditLogs({
-    limit: 5,
+    limit: 10,
     type: AuditLogEvent.MemberUpdate
   });
 
   const entry = logs.entries.find(e =>
+    e.target &&
     e.target.id === newMember.id &&
-    Date.now() - e.createdTimestamp < 5000
+    Date.now() - e.createdTimestamp < 10000
   );
 
   if (entry) executor = entry.executor;
