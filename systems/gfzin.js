@@ -2,7 +2,12 @@ const { EmbedBuilder, AuditLogEvent } = require("discord.js");
 
 module.exports = (client) => {
 
-const LOG_CHANNEL = "1479261311635554435";
+// 📌 CONFIG DE LOG POR SERVIDOR
+const LOG_CHANNELS = {
+  "705954733742882907": "1479261311635554435",
+  "1403143110694932570": "1484934763939631165",
+  "1484725561002561597": "1484936001947308163"
+};
 
 //
 // 🔊 VOICE LOGS
@@ -10,14 +15,17 @@ const LOG_CHANNEL = "1479261311635554435";
 client.on("voiceStateUpdate", async (oldState, newState) => {
 
 const guild = newState.guild;
-const logChannel = guild.channels.cache.get(LOG_CHANNEL);
+
+// pega o canal certo baseado no server
+const logChannelId = LOG_CHANNELS[guild.id];
+if (!logChannelId) return;
+
+const logChannel = guild.channels.cache.get(logChannelId);
 if (!logChannel) return;
 
 let executor = null;
 
 try {
-
-  // ⏳ Delay pra garantir que o log exista
   await new Promise(resolve => setTimeout(resolve, 1000));
 
   const logs = await guild.fetchAuditLogs({
@@ -58,11 +66,10 @@ const embed = new EmbedBuilder()
 .setTimestamp();
 
 logChannel.send({ embeds: [embed] });
-
 }
 
 //
-// ➕ ENTROU NA CALL
+// ➕ ENTROU
 //
 if (!oldState.channelId && newState.channelId) {
 
@@ -78,11 +85,10 @@ const embed = new EmbedBuilder()
 .setTimestamp();
 
 logChannel.send({ embeds: [embed] });
-
 }
 
 //
-// ➖ SAIU DA CALL
+// ➖ SAIU
 //
 if (oldState.channelId && !newState.channelId) {
 
@@ -98,7 +104,6 @@ const embed = new EmbedBuilder()
 .setTimestamp();
 
 logChannel.send({ embeds: [embed] });
-
 }
 
 //
@@ -113,12 +118,11 @@ const embed = new EmbedBuilder()
   iconURL: newState.member.user.displayAvatarURL()
 })
 .setTitle("🔇 Usuário mutado")
-.setDescription(`👤 <@${newState.id}>\n🛠️ ${executor ? `<@${executor.id}>` : "Sistema/Desconhecido"}`)
+.setDescription(`👤 <@${newState.id}>\n🛠️ ${executor ? `<@${executor.id}>` : "Sistema"}`)
 .setThumbnail(newState.member.user.displayAvatarURL())
 .setTimestamp();
 
 logChannel.send({ embeds: [embed] });
-
 }
 
 //
@@ -133,16 +137,14 @@ const embed = new EmbedBuilder()
   iconURL: newState.member.user.displayAvatarURL()
 })
 .setTitle("🔊 Usuário desmutado")
-.setDescription(`👤 <@${newState.id}>\n🛠️ ${executor ? `<@${executor.id}>` : "Sistema/Desconhecido"}`)
+.setDescription(`👤 <@${newState.id}>\n🛠️ ${executor ? `<@${executor.id}>` : "Sistema"}`)
 .setThumbnail(newState.member.user.displayAvatarURL())
 .setTimestamp();
 
 logChannel.send({ embeds: [embed] });
-
 }
 
 });
-
 
 //
 // ⛓️ TIMEOUT
@@ -155,7 +157,12 @@ const newTimeout = newMember.communicationDisabledUntilTimestamp;
 if (oldTimeout === newTimeout) return;
 
 const guild = newMember.guild;
-const logChannel = guild.channels.cache.get(LOG_CHANNEL);
+
+// pega o canal certo baseado no server
+const logChannelId = LOG_CHANNELS[guild.id];
+if (!logChannelId) return;
+
+const logChannel = guild.channels.cache.get(logChannelId);
 if (!logChannel) return;
 
 setTimeout(async () => {
@@ -163,7 +170,6 @@ setTimeout(async () => {
 let executor = null;
 
 try {
-
   const logs = await guild.fetchAuditLogs({
     limit: 10,
     type: AuditLogEvent.MemberUpdate
@@ -200,7 +206,6 @@ const embed = new EmbedBuilder()
 .setTimestamp();
 
 logChannel.send({ embeds: [embed] });
-
 }
 
 //
@@ -223,7 +228,6 @@ const embed = new EmbedBuilder()
 .setTimestamp();
 
 logChannel.send({ embeds: [embed] });
-
 }
 
 }, 1500);
