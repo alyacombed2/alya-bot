@@ -8,6 +8,7 @@ function sleep(ms) {
     return new Promise(res => setTimeout(res, ms));
 }
 
+// 🔥 BACKUP
 async function backupServer(guild) {
     const basePath = `./backup-${guild.id}`;
     const channelsPath = `${basePath}/channels`;
@@ -74,12 +75,14 @@ async function backupServer(guild) {
     console.log("📦 Backup completo feito!");
 }
 
+// 🔥 ZIP
 async function zipBackup(guildId) {
     return new Promise((resolve, reject) => {
-        const output = fs.createWriteStream(`backup-${guildId}.zip`);
+        const zipPath = `backup-${guildId}.zip`;
+        const output = fs.createWriteStream(zipPath);
         const archive = archiver('zip');
 
-        output.on('close', () => resolve(`backup-${guildId}.zip`));
+        output.on('close', () => resolve(zipPath));
         archive.on('error', err => reject(err));
 
         archive.pipe(output);
@@ -88,21 +91,47 @@ async function zipBackup(guildId) {
     });
 }
 
+// 🔥 DIVIDIR EM PARTES
+function splitFile(filePath, chunkSize = 20 * 1024 * 1024) {
+    const buffer = fs.readFileSync(filePath);
+    const parts = [];
+
+    let index = 0;
+    for (let i = 0; i < buffer.length; i += chunkSize) {
+        const chunk = buffer.slice(i, i + chunkSize);
+        const partName = `${filePath}.part${index}`;
+
+        fs.writeFileSync(partName, chunk);
+        parts.push(partName);
+        index++;
+    }
+
+    return parts;
+}
+
+// 🔥 RESTORE (ANTI TRAVA)
 async function restoreServer(guild) {
     const basePath = `./backup-${guild.id}`;
     const channelsPath = `${basePath}/channels`;
     const filesPath = `${basePath}/files`;
 
-    const serverData = JSON.parse(fs.readFileSync(`${basePath}/server.json`));
+    if (!fs.existsSync(basePath)) {
+        console.log("❌ Backup não encontrado!");
+        return;
+    }
 
-    console.log("🧹 Limpando servidor...");
+    let serverData;
+    try {
+        serverData = JSON.parse(fs.readFileSync(`${basePath}/server.json`));
+    } catch (err) {
+        console.log("❌ ERRO server.json:", err.message);
+        return;
+    }
 
     for (const channel of guild.channels.cache.values()) {
         await channel.delete().catch(() => {});
         await sleep(500);
     }
-
-    console.log("📁 Restaurando canais...");
 
     for (const ch of serverData) {
         const newChannel = await guild.channels.create({
@@ -112,20 +141,20 @@ async function restoreServer(guild) {
 
         await sleep(1000);
 
-        const filePathJson = `${channelsPath}/${ch.name}.json`;
-        if (!fs.existsSync(filePathJson)) continue;
+        let messages;
+        try {
+            messages = JSON.parse(
+                fs.readFileSync(`${channelsPath}/${ch.name}.json`)
+            );
+        } catch {
+            continue;
+        }
 
-        let messages = JSON.parse(fs.readFileSync(filePathJson));
-
-        // 🔥 LIMITE PRA NÃO TRAVAR
         messages = messages.slice(0, 300);
-
-        console.log(`📨 ${ch.name}: ${messages.length} mensagens`);
 
         for (const msg of messages) {
             let content = `**${msg.author}:** ${msg.content || ""}`;
 
-            // 🔥 DIVIDE MENSAGEM GRANDE
             const parts = content.match(/[\s\S]{1,1900}/g) || [];
 
             for (const part of parts) {
@@ -160,6 +189,7 @@ async function restoreServer(guild) {
     console.log("✅ Restore completo!");
 }
 
+// 🔥 NUKE
 async function nukeComBackup(guild) {
     await backupServer(guild);
     await sleep(2000);
@@ -178,4 +208,4 @@ async function nukeComBackup(guild) {
     console.log("💣 Nuke finalizado!");
 }
 
-module.exports = { backupServer, restoreServer, nukeComBackup, zipBackup };
+module.exports = { backupServer, restoreServer, nukeComBackup, zipBackup, splitFile };
