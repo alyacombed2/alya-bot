@@ -3,12 +3,12 @@ const axios = require('axios');
 const path = require('path');
 const archiver = require('archiver');
 
-// delay
+
 function sleep(ms) {
     return new Promise(res => setTimeout(res, ms));
 }
 
-// 🔥 BACKUP (GLOBAL)
+
 async function backupServer(guild) {
     const basePath = `./global-backup`;
     const channelsPath = `${basePath}/channels`;
@@ -81,7 +81,7 @@ async function backupServer(guild) {
     console.log("📦 Backup completo salvo em ./global-backup");
 }
 
-// 🔥 ZIP
+
 async function zipBackup() {
     return new Promise((resolve, reject) => {
         const zipPath = `global-backup.zip`;
@@ -97,7 +97,7 @@ async function zipBackup() {
     });
 }
 
-// 🔥 DIVIDIR EM PARTES (20MB)
+
 function splitFile(filePath, chunkSize = 20 * 1024 * 1024) {
     const buffer = fs.readFileSync(filePath);
     const parts = [];
@@ -115,7 +115,7 @@ function splitFile(filePath, chunkSize = 20 * 1024 * 1024) {
     return parts;
 }
 
-// 🔥 RESTORE SEM APAGAR
+
 async function restoreServer(guild) {
     const basePath = `./global-backup`;
     const channelsPath = `${basePath}/channels`;
@@ -168,7 +168,7 @@ async function restoreServer(guild) {
         for (const msg of messages) {
             let content = `**${msg.author}:** ${msg.content}`;
 
-            // 🔥 quebra em partes de 1900 chars
+            
             const parts = content.match(/[\s\S]{1,1900}/g) || [];
 
             for (const part of parts) {
@@ -203,7 +203,7 @@ async function restoreServer(guild) {
     console.log("✅ Restore finalizado!");
 }
 
-// 🔥 NUKE + BACKUP
+
 async function nukeComBackup(guild) {
     await backupServer(guild);
     await sleep(2000);
