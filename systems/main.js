@@ -28,7 +28,7 @@ const command = args.shift().toLowerCase();
 const log = message.guild.channels.cache.get(LOG_CHANNEL);
 
 
-// ================= WARN =================
+
 
 if (command === "!warn") {
 
@@ -88,7 +88,7 @@ console.log(err);
 }
 
 
-// ================= WARNINGS =================
+
 
 if (command === "!warnings") {
 
@@ -107,7 +107,7 @@ message.reply(`📊 Warns de ${user.user.tag}\n\n${list}`);
 }
 
 
-// ================= UNWARN =================
+
 
 if (command === "!unwarn") {
 
@@ -128,7 +128,7 @@ message.reply(`✅ Um warn removido de ${user.user.tag}`);
 }
 
 
-// ================= CLEARWARN =================
+
 
 if (command === "!clearwarn") {
 
