@@ -2,14 +2,14 @@ const { EmbedBuilder, AuditLogEvent } = require("discord.js");
 
 module.exports = (client) => {
 
-  // 📌 CONFIG DE LOG POR SERVIDOR
+  
   const LOG_CHANNELS = {
     
     "1403143110694932570": "1484934763939631165",
     "1484725561002561597": "1484936001947308163"
   };
 
-  // Função para pegar executor via Audit Log
+ 
   const getExecutor = async (guild, type, targetId) => {
     try {
       const logs = await guild.fetchAuditLogs({ limit: 5, type });
@@ -19,9 +19,7 @@ module.exports = (client) => {
     return null;
   };
 
-  //
-  // 🔊 VOICE LOGS
-  //
+ 
   client.on("voiceStateUpdate", async (oldState, newState) => {
     const guild = newState.guild;
     const logChannelId = LOG_CHANNELS[guild.id];
@@ -31,7 +29,7 @@ module.exports = (client) => {
 
     let executor = null;
 
-    // 🔁 MOVIMENTO DE CALL
+   
     if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
       executor = await getExecutor(guild, AuditLogEvent.MemberMove, newState.id);
 
@@ -52,7 +50,7 @@ module.exports = (client) => {
       return logChannel.send({ embeds: [embed] });
     }
 
-    // ➕ ENTROU NA CALL
+   
     if (!oldState.channelId && newState.channelId) {
       const embed = new EmbedBuilder()
         .setColor("#22c55e")
@@ -65,7 +63,7 @@ module.exports = (client) => {
       return logChannel.send({ embeds: [embed] });
     }
 
-    // ➖ SAIU DA CALL
+                
     if (oldState.channelId && !newState.channelId) {
       const embed = new EmbedBuilder()
         .setColor("#ef4444")
@@ -78,7 +76,7 @@ module.exports = (client) => {
       return logChannel.send({ embeds: [embed] });
     }
 
-    // 🔇 MUTE
+   
     if (!oldState.serverMute && newState.serverMute) {
       executor = await getExecutor(guild, AuditLogEvent.MemberUpdate, newState.id);
 
@@ -96,7 +94,7 @@ module.exports = (client) => {
       return logChannel.send({ embeds: [embed] });
     }
 
-    // 🔊 UNMUTE
+  
     if (oldState.serverMute && !newState.serverMute) {
       executor = await getExecutor(guild, AuditLogEvent.MemberUpdate, newState.id);
 
@@ -115,9 +113,7 @@ module.exports = (client) => {
     }
   });
 
-  //
-  // ⛓️ TIMEOUT LOGS
-  //
+ 
   client.on("guildMemberUpdate", async (oldMember, newMember) => {
     const oldTimeout = oldMember.communicationDisabledUntilTimestamp;
     const newTimeout = newMember.communicationDisabledUntilTimestamp;
@@ -131,7 +127,6 @@ module.exports = (client) => {
 
     let executor = await getExecutor(guild, AuditLogEvent.MemberUpdate, newMember.id);
 
-    // Timeout aplicado
     if (!oldTimeout && newTimeout) {
       const embed = new EmbedBuilder()
         .setColor("#f59e0b")
@@ -149,7 +144,7 @@ module.exports = (client) => {
       return logChannel.send({ embeds: [embed] });
     }
 
-    // Timeout removido
+   
     if (oldTimeout && !newTimeout) {
       const embed = new EmbedBuilder()
         .setColor("#22c55e")
