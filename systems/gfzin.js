@@ -152,63 +152,79 @@ const logger = new LoggerPro();
 
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
-  const guild = newState.guild;
   const member = newState.member;
   if (!member) return;
 
-  const user = member.user;
+  const guild = newState.guild;
 
-  
+  const getExecutor = async (type) => {
+    try {
+      const logs = await guild.fetchAuditLogs({ limit: 5, type });
+      const entry = logs.entries.find(e =>
+        e.target?.id === member.id &&
+        Date.now() - e.createdTimestamp < 5000
+      );
+      return entry?.executor || null;
+    } catch {
+      return null;
+    }
+  };
+
+  // 🔥 FOI PUXADO
   if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
-    const executor = await logger.getExecutor(guild, AuditLogEvent.MemberMove, user.id);
+    const executor = await getExecutor(AuditLogEvent.MemberMove);
 
     const embed = new EmbedBuilder()
-  .setColor(logger.COLORS.voice)
-  .setTitle("🎧 Movimento de Voz")
-  .setThumbnail(user.displayAvatarURL({ dynamic: true }))
-  .setTimestamp()
-  .setDescription(
-    executor
-      ? `👤 ${executor} moveu **${member}** entre canais`
-      : `👤 **${member}** mudou de canal`
-  )
-  .addFields(
-    { name: "📤 De", value: oldState.channel?.toString() || "Desconhecido", inline: true },
-    { name: "📥 Para", value: newState.channel?.toString() || "Desconhecido", inline: true }
-  )
-  .setFooter({ text: `ID: ${user.id}` });
+      .setColor(0x8b5cf6)
+      .setTitle("🎯 Movimento de Voz")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(
+        executor
+          ? `👑 <@${executor.id}> puxou **${member.user.tag}**`
+          : `🔊 ${member.user.tag} mudou de canal sozinho`
+      )
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "🆔 ID", value: member.id, inline: true },
+        { name: "📤 Saiu de", value: oldState.channel?.toString(), inline: true },
+        { name: "📥 Entrou em", value: newState.channel?.toString(), inline: true }
+      )
+      .setTimestamp();
 
-logger.sendLog(guild.id, embed);
-
-    logger.sendLog(guild.id, embed);
+    return logger.sendLog(guild.id, embed);
   }
 
-  
+  // 🔥 ENTROU
   if (!oldState.channelId && newState.channelId) {
-    const embed = logger.createEmbed({
-      title: "🟢 Entrou na call",
-      color: logger.COLORS.success,
-      user,
-      fields: [
+    const embed = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle("🎧 Entrou na call")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(`🔥 **${member.user.tag} entrou sozinho**`)
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "🆔 ID", value: member.id, inline: true },
         { name: "📢 Canal", value: newState.channel.toString(), inline: true }
-      ]
-    });
+      )
+      .setTimestamp();
 
-    logger.sendLog(guild.id, embed);
+    return logger.sendLog(guild.id, embed);
   }
 
-  
+  // 🔥 SAIU
   if (oldState.channelId && !newState.channelId) {
-    const embed = logger.createEmbed({
-      title: "🔴 Saiu da call",
-      color: logger.COLORS.warning,
-      user,
-      fields: [
-        { name: "📢 Canal", value: oldState.channel?.toString() || "Desconhecido", inline: true }
-      ]
-    });
+    const embed = new EmbedBuilder()
+      .setColor(0xf59e0b)
+      .setTitle("📤 Saiu da call")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(`😴 **${member.user.tag} saiu da call**`)
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "🆔 ID", value: member.id, inline: true }
+      )
+      .setTimestamp();
 
-    logger.sendLog(guild.id, embed);
+    return logger.sendLog(guild.id, embed);
   }
 });
 
