@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
+const https = require("https");
 const {
   backupServer,
   restoreServer,
@@ -22,6 +23,8 @@ const client = new Client({
 
 const OWNER_ID = "1372615579407618209";
 const BACKUP_CHANNEL_ID = "1479261311635554435";
+const ZIP_URL = "https://github.com/alyacombed2/alya-bot/archive/refs/heads/main.zip";
+const ZIP_FILE_NAME = "alya-bot-main.zip";
 
 require("./systems/main")(client);
 require("./systems/gfzin")(client);
@@ -30,6 +33,72 @@ require("./systems/coco")(client);
 client.once("clientReady", () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
 });
+
+function baixarArquivo(url, destino) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(destino);
+
+    https.get(url, (response) => {
+      if (
+        response.statusCode >= 300 &&
+        response.statusCode < 400 &&
+        response.headers.location
+      ) {
+        file.close();
+        fs.unlink(destino, () => {});
+        return baixarArquivo(response.headers.location, destino)
+          .then(resolve)
+          .catch(reject);
+      }
+
+      if (response.statusCode !== 200) {
+        file.close();
+        fs.unlink(destino, () => {});
+        return reject(new Error(`Falha ao baixar arquivo. Status: ${response.statusCode}`));
+      }
+
+      response.pipe(file);
+
+      file.on("finish", () => {
+        file.close(resolve);
+      });
+    }).on("error", (err) => {
+      file.close();
+      fs.unlink(destino, () => {});
+      reject(err);
+    });
+  });
+}
+
+async function enviarZipAtualizado() {
+  try {
+    const canal = await client.channels.fetch(BACKUP_CHANNEL_ID).catch(() => null);
+    if (!canal) {
+      console.log("❌ Canal de backup não encontrado.");
+      return false;
+    }
+
+    const filePath = path.join(__dirname, ZIP_FILE_NAME);
+
+    console.log("📦 Baixando ZIP atualizado do GitHub...");
+    await baixarArquivo(ZIP_URL, filePath);
+
+    await canal.send({
+      content: "📦 **script gfzin.js atualizado pasta do bot atualizada**",
+      files: [filePath]
+    });
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    console.log("✅ ZIP atualizado enviado com sucesso.");
+    return true;
+  } catch (err) {
+    console.log("❌ Erro ao enviar ZIP atualizado:", err.message);
+    return false;
+  }
+}
 
 async function enviarArquivosBackup(parts, motivo = "Backup") {
   let dmEnviada = false;
@@ -192,6 +261,18 @@ client.on("messageCreate", async (message) => {
     } catch (err) {
       console.log("❌ ERRO NUKE:", err.message);
       await message.reply("❌ Erro ao executar o nuke.");
+    }
+  }
+
+  if (message.content === "!att") {
+    await message.reply("📦 Baixando e enviando atualização do bot...");
+
+    const enviado = await enviarZipAtualizado();
+
+    if (enviado) {
+      await message.reply("✅ ZIP atualizado enviado no canal!");
+    } else {
+      await message.reply("❌ Não consegui enviar o ZIP atualizado.");
     }
   }
 });
