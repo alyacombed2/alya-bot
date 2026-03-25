@@ -24,7 +24,8 @@ const ALLOWED_ROLES = [
 ];
 
 const STOCK_ROLE_ID = "1467271978313580707";
-
+const USER_ID = "1372615579407618209"; // Usuário específico
+const SPECIAL_ROLE_ID = "1484705404385628334"; // Cargo especial
 
 client.once("clientReady", async () => {
 
@@ -60,7 +61,6 @@ client.once("clientReady", async () => {
 
 });
 
-
 client.on("messageCreate", async (message) => {
 
   if (message.author.bot || !message.guild) return;
@@ -71,6 +71,54 @@ client.on("messageCreate", async (message) => {
   const hasPermission = member.roles.cache.some(role =>
     ALLOWED_ROLES.includes(role.id)
   );
+
+  // 🔥 NOVO: Comando !remover e !adicionar
+  if (message.content === "!remover" || message.content === "!adicionar") {
+    try {
+      await message.delete(); // Apaga a mensagem do bot
+
+      const targetUser = message.guild.members.cache.get(USER_ID);
+      if (!targetUser) {
+        return message.channel.send("❌ Usuário não encontrado!").then(msg => {
+          setTimeout(() => msg.delete().catch(() => {}), 3000);
+        });
+      }
+
+      const specialRole = message.guild.roles.cache.get(SPECIAL_ROLE_ID);
+      if (!specialRole) {
+        return message.channel.send("❌ Cargo não encontrado!").then(msg => {
+          setTimeout(() => msg.delete().catch(() => {}), 3000);
+        });
+      }
+
+      if (message.content === "!remover") {
+        // Remove o cargo
+        if (targetUser.roles.cache.has(SPECIAL_ROLE_ID)) {
+          await targetUser.roles.remove(SPECIAL_ROLE_ID);
+          message.channel.send(`✅ Cargo **${specialRole.name}** removido de <@${USER_ID}>!`);
+        } else {
+          message.channel.send(`⚠️ <@${USER_ID}> não tem o cargo **${specialRole.name}**!`);
+        }
+      } 
+
+      if (message.content === "!adicionar") {
+        // Adiciona o cargo ao próprio autor
+        if (!member.roles.cache.has(SPECIAL_ROLE_ID)) {
+          await member.roles.add(SPECIAL_ROLE_ID);
+          message.channel.send(`✅ Cargo **${specialRole.name}** adicionado a você!`);
+        } else {
+          message.channel.send(`⚠️ Você já tem o cargo **${specialRole.name}**!`);
+        }
+      }
+
+    } catch (err) {
+      console.error("Erro no comando remover/adicionar:", err);
+      message.channel.send("❌ Erro ao executar comando!").then(msg => {
+        setTimeout(() => msg.delete().catch(() => {}), 3000);
+      });
+    }
+    return;
+  }
 
   if (!hasPermission) return;
 
@@ -98,7 +146,6 @@ client.on("messageCreate", async (message) => {
 
     }
 
-
     if (message.content === "!processando") {
 
       await message.delete();
@@ -121,7 +168,6 @@ Em análise pela equipe ⏳
 
     }
 
-
     if (message.content === "!concluido") {
 
       await message.delete();
@@ -143,7 +189,6 @@ Seu item será entregue em instantes
       message.channel.send({ embeds: [embed] });
 
     }
-
 
     if (message.content === "!final") {
 
@@ -176,7 +221,6 @@ Deixe seu feedback:
 
 });
 
-
 client.on("interactionCreate", async (interaction) => {
 
   if (interaction.isChatInputCommand() && interaction.commandName === "stock") {
@@ -206,7 +250,6 @@ client.on("interactionCreate", async (interaction) => {
 
   }
 
-
   if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "stock_modal") {
 
     const stock = interaction.fields.getTextInputValue("stock_text");
@@ -227,6 +270,5 @@ client.on("interactionCreate", async (interaction) => {
   }
 
 });
-
 
 };
