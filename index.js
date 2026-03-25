@@ -88,7 +88,7 @@ setInterval(async () => {
   } catch (err) {
     console.log("Erro auto backup:", err.message);
   }
-}, 1000 * 60 * 10); 
+}, 1000 * 60 * 30); 
 
 
 
