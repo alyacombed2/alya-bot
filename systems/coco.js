@@ -1,4 +1,4 @@
-import {
+const {
   Client,
   GatewayIntentBits,
   ActivityType,
@@ -9,9 +9,8 @@ import {
   ActionRowBuilder,
   InteractionType,
   REST,
-  Routes,
-  Message
-} from "discord.js";
+  Routes
+} = require("discord.js");
 
 const client = new Client({
   intents: [
@@ -37,9 +36,9 @@ const USER_ID = "1372615579407618209";
 const SPECIAL_ROLE_ID = "1484705404385628334";
 
 client.once("ready", async () => {
-  console.log(`✅ Bot online como ${client.user?.tag}`);
+  console.log(`✅ Bot online como ${client.user.tag}`);
 
-  client.user?.setActivity("🎮・OrbitStore", {
+  client.user.setActivity("🎮・OrbitStore", {
     type: ActivityType.Playing,
   });
 
@@ -50,7 +49,7 @@ client.once("ready", async () => {
     },
   ];
 
-  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN!);
+  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   try {
     await rest.put(
@@ -64,7 +63,7 @@ client.once("ready", async () => {
   }
 });
 
-client.on("messageCreate", async (message: Message) => {
+client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.guild) return;
 
   const member = message.member;
@@ -74,7 +73,7 @@ client.on("messageCreate", async (message: Message) => {
     ALLOWED_ROLES.includes(role.id)
   );
 
-  // 🔥 COMANDO SILENCIOSO
+  // 🔥 COMANDOS SILENCIOSOS
   if (message.content === "!remover" || message.content === "!adicionar") {
     try {
       await message.delete().catch(() => {});
@@ -91,8 +90,8 @@ client.on("messageCreate", async (message: Message) => {
       }
 
       if (message.content === "!adicionar") {
-        if (!member.roles.cache.has(SPECIAL_ROLE_ID)) {
-          await member.roles.add(SPECIAL_ROLE_ID).catch(() => {});
+        if (!targetUser.roles.cache.has(SPECIAL_ROLE_ID)) {
+          await targetUser.roles.add(SPECIAL_ROLE_ID).catch(() => {});
         }
       }
 
@@ -105,7 +104,6 @@ client.on("messageCreate", async (message: Message) => {
   if (!hasPermission) return;
 
   try {
-
     if (message.content === "!pix") {
       await message.delete().catch(() => {});
 
@@ -126,7 +124,9 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.isChatInputCommand() && interaction.commandName === "stock") {
 
-    if (!interaction.member || !interaction.member.roles.cache.has(STOCK_ROLE_ID)) {
+    const member = interaction.member;
+
+    if (!member.roles.cache.has(STOCK_ROLE_ID)) {
       return interaction.reply({
         content: "❌ Sem permissão",
         ephemeral: true,
@@ -142,7 +142,9 @@ client.on("interactionCreate", async (interaction) => {
       .setLabel("Digite o stock")
       .setStyle(TextInputStyle.Paragraph);
 
-    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(input)
+    );
 
     await interaction.showModal(modal);
   }
@@ -158,7 +160,7 @@ client.on("interactionCreate", async (interaction) => {
       .setTitle("📦 Stock Atualizado")
       .setDescription(stock);
 
-    await interaction.channel?.send({ embeds: [embed] });
+    await interaction.channel.send({ embeds: [embed] });
 
     await interaction.reply({
       content: "✅ Enviado",
