@@ -11,6 +11,8 @@ const {
 const fs = require("fs");
 const express = require("express");
 const afkTimers = new Map();
+const pendingAfkChecks = new Map();
+
 const AFK_CHANNEL_ID = "1476321423042543706";
 const AFK_TIME = 5 * 60 * 1000;
 
@@ -170,26 +172,47 @@ function resetAfkTimer(member, voiceState) {
 
       if (freshMember.voice.channelId === AFK_CHANNEL_ID) return;
 
-      const afkChannel = guild.channels.cache.get(AFK_CHANNEL_ID);
-      if (!afkChannel) return;
+      const alreadyPending = pendingAfkChecks.get(freshMember.id);
+      if (alreadyPending) return;
 
-      await freshMember.voice.setChannel(afkChannel).catch(() => {});
+      pendingAfkChecks.set(freshMember.id, {
+        guildId: guild.id,
+        userId: freshMember.id,
+        voiceChannelId: freshMember.voice.channelId,
+        createdAt: Date.now()
+      });
 
       const embed = new EmbedBuilder()
         .setColor(0xf59e0b)
-        .setTitle("💤 Membro movido por AFK")
+        .setTitle("💤 Possível AFK Detectado")
         .setThumbnail(freshMember.user.displayAvatarURL({ dynamic: true }))
-        .setDescription(`😴 **${freshMember.user.tag}** ficou AFK por mais de 5 minutos`)
+        .setDescription(`⚠️ **${freshMember.user.tag}** está há mais de **5 minutos sem atividade detectável** na call.`)
         .addFields(
           { name: "👤 Usuário", value: `<@${freshMember.id}>`, inline: true },
-          { name: "🆔 ID", value: freshMember.id, inline: true },
-          { name: "📥 Movido para", value: `<#${AFK_CHANNEL_ID}>`, inline: true }
+          { name: "🆔 ID", value: `\`${freshMember.id}\``, inline: true },
+          { name: "📢 Canal Atual", value: freshMember.voice.channel?.toString() || "Desconhecido", inline: true },
+          { name: "📌 Ação", value: "Deseja mover este membro para o canal AFK?", inline: false }
         )
+        .setFooter({ text: "Logger PRO ULTRA • Confirmação de AFK" })
         .setTimestamp();
 
-      logger.sendLog(guild.id, embed);
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`afk_yes_${freshMember.id}`)
+          .setLabel("Sim, mover")
+          .setStyle(ButtonStyle.Success),
+
+        new ButtonBuilder()
+          .setCustomId(`afk_no_${freshMember.id}`)
+          .setLabel("Não mover")
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await logger.sendLog(guild.id, embed, row);
       afkTimers.delete(member.id);
-    } catch {}
+    } catch (err) {
+      console.log("Erro no sistema AFK:", err.message);
+    }
   }, AFK_TIME);
 
   afkTimers.set(member.id, timer);
@@ -237,11 +260,15 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   }
 
   if (!isInVoice || channelNow === AFK_CHANNEL_ID) {
-    if (afkTimers.has(member.id)) {
-      clearTimeout(afkTimers.get(member.id));
-      afkTimers.delete(member.id);
-    }
+  if (afkTimers.has(member.id)) {
+    clearTimeout(afkTimers.get(member.id));
+    afkTimers.delete(member.id);
   }
+
+  if (pendingAfkChecks.has(member.id)) {
+    pendingAfkChecks.delete(member.id);
+  }
+}
 
   
   if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
@@ -825,6 +852,93 @@ client.on("messageCreate", async (msg) => {
 
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith("afk_yes_") || interaction.customId.startsWith("afk_no_")) {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.MoveMembers)) {
+        return interaction.reply({
+          content: "❌ Você precisa da permissão **Mover Membros** para usar isso.",
+          ephemeral: true
+        });
+      }
+
+      const userId = interaction.customId.split("_")[2];
+      const data = pendingAfkChecks.get(userId);
+
+      if (!data) {
+        return interaction.reply({
+          content: "⚠️ Essa verificação AFK já expirou ou foi resolvida.",
+          ephemeral: true
+        });
+      }
+
+      const guild = interaction.guild;
+      const member = await guild.members.fetch(userId).catch(() => null);
+
+      if (!member || !member.voice?.channelId) {
+        pendingAfkChecks.delete(userId);
+
+        return interaction.update({
+          content: "⚠️ O usuário não está mais em call.",
+          embeds: [],
+          components: []
+        });
+      }
+
+      if (interaction.customId.startsWith("afk_yes_")) {
+        const afkChannel = guild.channels.cache.get(AFK_CHANNEL_ID);
+
+        if (!afkChannel) {
+          return interaction.reply({
+            content: "❌ Canal AFK não encontrado.",
+            ephemeral: true
+          });
+        }
+
+        await member.voice.setChannel(afkChannel).catch(() => {});
+        pendingAfkChecks.delete(userId);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x22c55e)
+          .setTitle("✅ Membro Movido para AFK")
+          .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+          .setDescription(`😴 **${member.user.tag}** foi movido manualmente para o canal AFK.`)
+          .addFields(
+            { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+            { name: "🛠️ Aprovado por", value: `<@${interaction.user.id}>`, inline: true },
+            { name: "📥 Destino", value: `<#${AFK_CHANNEL_ID}>`, inline: true }
+          )
+          .setFooter({ text: "Logger PRO ULTRA • AFK confirmado" })
+          .setTimestamp();
+
+        return interaction.update({
+          embeds: [embed],
+          components: []
+        });
+      }
+
+      if (interaction.customId.startsWith("afk_no_")) {
+        pendingAfkChecks.delete(userId);
+
+        const embed = new EmbedBuilder()
+          .setColor(0xef4444)
+          .setTitle("❌ AFK Cancelado")
+          .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+          .setDescription(`🛡️ Foi decidido que **${member.user.tag}** não será movido para o canal AFK.`)
+          .addFields(
+            { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+            { name: "🛠️ Cancelado por", value: `<@${interaction.user.id}>`, inline: true }
+          )
+          .setFooter({ text: "Logger PRO ULTRA • AFK rejeitado" })
+          .setTimestamp();
+
+        return interaction.update({
+          embeds: [embed],
+          components: []
+        });
+      }
+    }
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "logset") {
@@ -881,3 +995,5 @@ app.get("/", (req, res) => {
 
 app.listen(3000);
 }
+
+
