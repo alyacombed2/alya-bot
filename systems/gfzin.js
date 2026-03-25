@@ -14,7 +14,7 @@ const afkTimers = new Map();
 const pendingAfkChecks = new Map();
 
 const AFK_CHANNEL_ID = "1476321423042543706";
-const AFK_TIME = 5 * 60 * 1000;
+const AFK_TIME = 10 * 60 * 1000;
 
 module.exports = (client) => {
 
