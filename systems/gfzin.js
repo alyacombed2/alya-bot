@@ -153,7 +153,7 @@ const logger = new LoggerPro();
 
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
-  const member = newState.member;
+  const member = newState.member || oldState.member;
   if (!member) return;
 
   const guild = newState.guild;
@@ -163,7 +163,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       const logs = await guild.fetchAuditLogs({ limit: 5, type });
       const entry = logs.entries.find(e =>
         e.target?.id === member.id &&
-        Date.now() - e.createdTimestamp < 5000
+        Date.now() - e.createdTimestamp < 10000
       );
       return entry?.executor || null;
     } catch {
@@ -171,7 +171,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     }
   };
 
-  // 🔥 FOI PUXADO
+  
   if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
     const executor = await getExecutor(AuditLogEvent.MemberMove);
 
@@ -181,27 +181,27 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
       .setDescription(
         executor
-          ? `👑 <@${executor.id}> puxou **${member.user.tag}**`
+          ? `👑 <@${executor.id}> moveu **${member.user.tag}**`
           : `🔊 ${member.user.tag} mudou de canal sozinho`
       )
       .addFields(
         { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
         { name: "🆔 ID", value: member.id, inline: true },
-        { name: "📤 Saiu de", value: oldState.channel?.toString(), inline: true },
-        { name: "📥 Entrou em", value: newState.channel?.toString(), inline: true }
+        { name: "📤 Saiu de", value: oldState.channel?.toString() || "Desconhecido", inline: true },
+        { name: "📥 Entrou em", value: newState.channel?.toString() || "Desconhecido", inline: true }
       )
       .setTimestamp();
 
     return logger.sendLog(guild.id, embed);
   }
 
-  // 🔥 ENTROU
+  
   if (!oldState.channelId && newState.channelId) {
     const embed = new EmbedBuilder()
       .setColor(0x22c55e)
       .setTitle("🎧 Entrou na call")
       .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-      .setDescription(`🔥 **${member.user.tag} entrou sozinho**`)
+      .setDescription(`🔥 **${member.user.tag} entrou na call**`)
       .addFields(
         { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
         { name: "🆔 ID", value: member.id, inline: true },
@@ -212,7 +212,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     return logger.sendLog(guild.id, embed);
   }
 
-  // 🔥 SAIU
+  
   if (oldState.channelId && !newState.channelId) {
     const embed = new EmbedBuilder()
       .setColor(0xf59e0b)
@@ -221,7 +221,136 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       .setDescription(`😴 **${member.user.tag} saiu da call**`)
       .addFields(
         { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
-        { name: "🆔 ID", value: member.id, inline: true }
+        { name: "🆔 ID", value: member.id, inline: true },
+        { name: "📢 Canal", value: oldState.channel?.toString() || "Desconhecido", inline: true }
+      )
+      .setTimestamp();
+
+    return logger.sendLog(guild.id, embed);
+  }
+
+  
+  if (oldState.serverMute !== newState.serverMute) {
+    const executor = await getExecutor(AuditLogEvent.MemberUpdate);
+
+    const embed = new EmbedBuilder()
+      .setColor(newState.serverMute ? 0xef4444 : 0x22c55e)
+      .setTitle(newState.serverMute ? "🔇 Membro Mutado" : "🔊 Membro Desmutado")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(
+        newState.serverMute
+          ? `🔇 **${member.user.tag}** foi mutado no servidor`
+          : `🔊 **${member.user.tag}** foi desmutado no servidor`
+      )
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "🆔 ID", value: member.id, inline: true },
+        { name: "📢 Canal", value: newState.channel?.toString() || oldState.channel?.toString() || "Desconhecido", inline: true },
+        { name: "🛠️ Executor", value: executor ? `<@${executor.id}>` : "Desconhecido", inline: false }
+      )
+      .setTimestamp();
+
+    return logger.sendLog(guild.id, embed);
+  }
+
+  
+  if (oldState.serverDeaf !== newState.serverDeaf) {
+    const executor = await getExecutor(AuditLogEvent.MemberUpdate);
+
+    const embed = new EmbedBuilder()
+      .setColor(newState.serverDeaf ? 0xef4444 : 0x22c55e)
+      .setTitle(newState.serverDeaf ? "🔕 Membro Ensurdecido" : "🎧 Ensurdecimento Removido")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(
+        newState.serverDeaf
+          ? `🔕 **${member.user.tag}** foi ensurdecido no servidor`
+          : `🎧 **${member.user.tag}** voltou a ouvir no servidor`
+      )
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "🆔 ID", value: member.id, inline: true },
+        { name: "📢 Canal", value: newState.channel?.toString() || oldState.channel?.toString() || "Desconhecido", inline: true },
+        { name: "🛠️ Executor", value: executor ? `<@${executor.id}>` : "Desconhecido", inline: false }
+      )
+      .setTimestamp();
+
+    return logger.sendLog(guild.id, embed);
+  }
+
+  
+  if (oldState.selfMute !== newState.selfMute) {
+    const embed = new EmbedBuilder()
+      .setColor(newState.selfMute ? 0xf59e0b : 0x22c55e)
+      .setTitle(newState.selfMute ? "🎙️ Microfone Desligado" : "🎙️ Microfone Ligado")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(
+        newState.selfMute
+          ? `🔇 **${member.user.tag}** se mutou`
+          : `🔊 **${member.user.tag}** se desmutou`
+      )
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "📢 Canal", value: newState.channel?.toString() || oldState.channel?.toString() || "Desconhecido", inline: true }
+      )
+      .setTimestamp();
+
+    return logger.sendLog(guild.id, embed);
+  }
+
+  
+  if (oldState.selfDeaf !== newState.selfDeaf) {
+    const embed = new EmbedBuilder()
+      .setColor(newState.selfDeaf ? 0xf59e0b : 0x22c55e)
+      .setTitle(newState.selfDeaf ? "🎧 Auto-Ensurdeceu" : "🎧 Auto-Ensurdecimento Removido")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(
+        newState.selfDeaf
+          ? `🔕 **${member.user.tag}** se ensurdeceu`
+          : `🔊 **${member.user.tag}** voltou a ouvir`
+      )
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "📢 Canal", value: newState.channel?.toString() || oldState.channel?.toString() || "Desconhecido", inline: true }
+      )
+      .setTimestamp();
+
+    return logger.sendLog(guild.id, embed);
+  }
+
+  
+  if (oldState.streaming !== newState.streaming) {
+    const embed = new EmbedBuilder()
+      .setColor(newState.streaming ? 0x5865F2 : 0xf59e0b)
+      .setTitle(newState.streaming ? "📺 Iniciou Stream" : "🛑 Finalizou Stream")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(
+        newState.streaming
+          ? `📺 **${member.user.tag}** iniciou uma transmissão`
+          : `🛑 **${member.user.tag}** encerrou a transmissão`
+      )
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "📢 Canal", value: newState.channel?.toString() || oldState.channel?.toString() || "Desconhecido", inline: true }
+      )
+      .setTimestamp();
+
+    return logger.sendLog(guild.id, embed);
+  }
+
+  
+  if (oldState.selfVideo !== newState.selfVideo) {
+    const embed = new EmbedBuilder()
+      .setColor(newState.selfVideo ? 0x3b82f6 : 0xf59e0b)
+      .setTitle(newState.selfVideo ? "📷 Câmera Ligada" : "📷 Câmera Desligada")
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+      .setDescription(
+        newState.selfVideo
+          ? `📷 **${member.user.tag}** ligou a câmera`
+          : `📷 **${member.user.tag}** desligou a câmera`
+      )
+      .addFields(
+        { name: "👤 Usuário", value: `<@${member.id}>`, inline: true },
+        { name: "📢 Canal", value: newState.channel?.toString() || oldState.channel?.toString() || "Desconhecido", inline: true }
       )
       .setTimestamp();
 
@@ -276,12 +405,29 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
   const guild = newMember.guild;
   const user = newMember.user;
 
-  // NICK
+  // ========= NICKNAME =========
   if (oldMember.nickname !== newMember.nickname) {
+    let executor = null;
+
+    try {
+      const logs = await guild.fetchAuditLogs({
+        type: AuditLogEvent.MemberUpdate,
+        limit: 5
+      });
+
+      const entry = logs.entries.find(e =>
+        e.target?.id === user.id &&
+        Date.now() - e.createdTimestamp < 10000
+      );
+
+      executor = entry?.executor || null;
+    } catch {}
+
     const embed = logger.createEmbed({
-      title: "✏️ Nick alterado",
+      title: "✏️ Apelido Alterado",
       color: logger.COLORS.info,
       user,
+      executor,
       fields: [
         { name: "Antes", value: oldMember.nickname || "Nenhum", inline: true },
         { name: "Depois", value: newMember.nickname || "Nenhum", inline: true }
@@ -291,17 +437,21 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
     logger.sendLog(guild.id, embed);
   }
 
-  
-  const addedRoles = newMember.roles.cache.filter(r => 
-    !oldMember.roles.cache.has(r.id) && r.id !== guild.id
+  // ========= ROLES =========
+  const addedRoles = newMember.roles.cache.filter(
+    r => !oldMember.roles.cache.has(r.id) && r.id !== guild.id
   );
 
-  const removedRoles = oldMember.roles.cache.filter(r => 
-    !newMember.roles.cache.has(r.id) && r.id !== guild.id
+  const removedRoles = oldMember.roles.cache.filter(
+    r => !newMember.roles.cache.has(r.id) && r.id !== guild.id
   );
 
   if (addedRoles.size > 0) {
-    const executor = await logger.getExecutor(guild, AuditLogEvent.MemberRoleUpdate, user.id);
+    const executor = await logger.getExecutor(
+      guild,
+      AuditLogEvent.MemberRoleUpdate,
+      user.id
+    );
 
     const embed = logger.createEmbed({
       title: "🟢 Cargo Adicionado",
@@ -309,7 +459,10 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
       user,
       executor,
       fields: [
-        { name: "Cargos", value: addedRoles.map(r => `<@&${r.id}>`).join(", ") }
+        {
+          name: "Cargos",
+          value: addedRoles.map(r => `<@&${r.id}>`).join(", ")
+        }
       ]
     });
 
@@ -317,7 +470,11 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
   }
 
   if (removedRoles.size > 0) {
-    const executor = await logger.getExecutor(guild, AuditLogEvent.MemberRoleUpdate, user.id);
+    const executor = await logger.getExecutor(
+      guild,
+      AuditLogEvent.MemberRoleUpdate,
+      user.id
+    );
 
     const embed = logger.createEmbed({
       title: "🔴 Cargo Removido",
@@ -325,7 +482,50 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
       user,
       executor,
       fields: [
-        { name: "Cargos", value: removedRoles.map(r => `<@&${r.id}>`).join(", ") }
+        {
+          name: "Cargos",
+          value: removedRoles.map(r => `<@&${r.id}>`).join(", ")
+        }
+      ]
+    });
+
+    logger.sendLog(guild.id, embed);
+  }
+
+  // ========= TIMEOUT =========
+  if (oldMember.communicationDisabledUntilTimestamp !== newMember.communicationDisabledUntilTimestamp) {
+    let executor = null;
+
+    try {
+      const logs = await guild.fetchAuditLogs({
+        type: AuditLogEvent.MemberUpdate,
+        limit: 5
+      });
+
+      const entry = logs.entries.find(e =>
+        e.target?.id === user.id &&
+        Date.now() - e.createdTimestamp < 10000
+      );
+
+      executor = entry?.executor || null;
+    } catch {}
+
+    const isTimedOut = newMember.communicationDisabledUntilTimestamp &&
+      newMember.communicationDisabledUntilTimestamp > Date.now();
+
+    const embed = logger.createEmbed({
+      title: isTimedOut ? "⏳ Membro Silenciado (Timeout)" : "🔓 Timeout Removido",
+      color: isTimedOut ? logger.COLORS.warning : logger.COLORS.success,
+      user,
+      executor,
+      fields: [
+        {
+          name: "Status",
+          value: isTimedOut
+            ? `Até <t:${Math.floor(newMember.communicationDisabledUntilTimestamp / 1000)}:F>`
+            : "Timeout removido",
+          inline: false
+        }
       ]
     });
 
