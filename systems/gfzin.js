@@ -25,7 +25,8 @@ class LoggerPro {
       error: 0xef4444,
       warning: 0xf59e0b,
       info: 0x3b82f6,
-      voice: 0x8b5cf6
+      voice: 0x8b5cf6,
+      premium: 0x5865F2
     };
 
     this.cooldowns = new Map();
@@ -39,7 +40,7 @@ class LoggerPro {
 
   init() {
     this.loadCustomLogs();
-    console.log("✅ Logger PRO carregado");
+    console.log("🚀 Logger PRO ULTRA carregado");
   }
 
   loadCustomLogs() {
@@ -67,6 +68,70 @@ class LoggerPro {
     return guild.channels.cache.get(channelId);
   }
 
+  async getExecutor(guild, type, targetId) {
+    try {
+      const logs = await guild.fetchAuditLogs({ limit: 5, type });
+      const entry = logs.entries.find(e => e.target?.id === targetId);
+      return entry?.executor || null;
+    } catch {
+      return null;
+    }
+  }
+
+  
+  createEmbed({
+    title,
+    color,
+    user,
+    executor,
+    reason,
+    fields = [],
+    footerExtra = ""
+  }) {
+    const embed = new EmbedBuilder()
+      .setColor(color || this.COLORS.premium)
+      .setTitle(title)
+      .setTimestamp();
+
+    if (user) {
+      embed
+        .setAuthor({
+          name: `${user.tag}`,
+          iconURL: user.displayAvatarURL({ dynamic: true })
+        })
+        .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+        .addFields(
+          { name: "👤 Usuário", value: `<@${user.id}>`, inline: true },
+          { name: "🆔 ID", value: `\`${user.id}\``, inline: true },
+          { name: "📛 Tag", value: `\`${user.tag}\``, inline: true }
+        );
+    }
+
+    if (executor) {
+      embed.addFields({
+        name: "🛠️ Executor",
+        value: `<@${executor.id}> (\`${executor.tag}\`)`,
+        inline: false
+      });
+    }
+
+    if (reason) {
+      embed.addFields({
+        name: "📄 Motivo",
+        value: reason,
+        inline: false
+      });
+    }
+
+    if (fields.length > 0) embed.addFields(fields);
+
+    embed.setFooter({
+      text: `Logger PRO ULTRA ${footerExtra}`
+    });
+
+    return embed;
+  }
+
   async sendLog(guildId, embed, components = null) {
     const channel = this.getLogChannel(guildId);
     if (!channel) return;
@@ -84,266 +149,334 @@ class LoggerPro {
 
 const logger = new LoggerPro();
 
+
+
 client.on("voiceStateUpdate", async (oldState, newState) => {
-  const userId = newState.id;
   const guild = newState.guild;
   const member = newState.member;
   if (!member) return;
 
+  const user = member.user;
+
+  
   if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+    const executor = await logger.getExecutor(guild, AuditLogEvent.MemberMove, user.id);
+
     const embed = new EmbedBuilder()
-      .setColor(0x8b5cf6)
-      .setTitle("🎵 Moveu canal")
-      .addFields(
-        { name: "User", value: `<@${userId}>` },
-        { name: "De", value: oldState.channel?.name || "?" },
-        { name: "Para", value: newState.channel?.name || "?" }
-      );
+  .setColor(logger.COLORS.voice)
+  .setTitle("🎧 Movimento de Voz")
+  .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+  .setTimestamp()
+  .setDescription(
+    executor
+      ? `👤 ${executor} moveu **${member}** entre canais`
+      : `👤 **${member}** mudou de canal`
+  )
+  .addFields(
+    { name: "📤 De", value: oldState.channel?.toString() || "Desconhecido", inline: true },
+    { name: "📥 Para", value: newState.channel?.toString() || "Desconhecido", inline: true }
+  )
+  .setFooter({ text: `ID: ${user.id}` });
+
+logger.sendLog(guild.id, embed);
 
     logger.sendLog(guild.id, embed);
   }
 
+  
   if (!oldState.channelId && newState.channelId) {
-    const embed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("Entrou na call")
-      .addFields({ name: "User", value: `<@${userId}>` });
+    const embed = logger.createEmbed({
+      title: "🟢 Entrou na call",
+      color: logger.COLORS.success,
+      user,
+      fields: [
+        { name: "📢 Canal", value: newState.channel.toString(), inline: true }
+      ]
+    });
 
     logger.sendLog(guild.id, embed);
   }
 
+  
   if (oldState.channelId && !newState.channelId) {
-    const embed = new EmbedBuilder()
-      .setColor(0xf59e0b)
-      .setTitle("Saiu da call")
-      .addFields({ name: "User", value: `<@${userId}>` });
+    const embed = logger.createEmbed({
+      title: "🔴 Saiu da call",
+      color: logger.COLORS.warning,
+      user,
+      fields: [
+        { name: "📢 Canal", value: oldState.channel?.toString() || "Desconhecido", inline: true }
+      ]
+    });
 
     logger.sendLog(guild.id, embed);
   }
 });
+
+
+
 
 client.on("guildBanAdd", async (ban) => {
-  const embed = new EmbedBuilder()
-    .setColor(0xef4444)
-    .setTitle("🔨 Ban")
-    .addFields({ name: "User", value: `<@${ban.user.id}>` });
+  const guild = ban.guild;
+  const user = ban.user;
 
-  logger.sendLog(ban.guild.id, embed);
+  const executor = await logger.getExecutor(guild, AuditLogEvent.MemberBanAdd, user.id);
+
+  const logs = await guild.fetchAuditLogs({ type: AuditLogEvent.MemberBanAdd, limit: 1 });
+  const reason = logs.entries.first()?.reason || "Não especificado";
+
+  const embed = logger.createEmbed({
+    title: "🔨 Usuário Banido",
+    color: logger.COLORS.error,
+    user,
+    executor,
+    reason
+  });
+
+  logger.sendLog(guild.id, embed);
 });
+
 
 client.on("guildBanRemove", async (ban) => {
-  const embed = new EmbedBuilder()
-    .setColor(0x22c55e)
-    .setTitle("🔓 Unban")
-    .addFields({ name: "User", value: `<@${ban.user.id}>` });
+  const guild = ban.guild;
+  const user = ban.user;
 
-  logger.sendLog(ban.guild.id, embed);
+  const executor = await logger.getExecutor(guild, AuditLogEvent.MemberBanRemove, user.id);
+
+  const embed = logger.createEmbed({
+    title: "🔓 Ban Removido",
+    color: logger.COLORS.success,
+    user,
+    executor
+  });
+
+  logger.sendLog(guild.id, embed);
 });
 
+
+
+
 client.on("guildMemberUpdate", async (oldMember, newMember) => {
+  const guild = newMember.guild;
+  const user = newMember.user;
+
+  // NICK
   if (oldMember.nickname !== newMember.nickname) {
-    const embed = new EmbedBuilder()
-      .setColor(0x3b82f6)
-      .setTitle("✏️ Nick alterado")
-      .addFields(
-        { name: "User", value: `<@${newMember.id}>`, inline: true },
+    const embed = logger.createEmbed({
+      title: "✏️ Nick alterado",
+      color: logger.COLORS.info,
+      user,
+      fields: [
         { name: "Antes", value: oldMember.nickname || "Nenhum", inline: true },
         { name: "Depois", value: newMember.nickname || "Nenhum", inline: true }
-      );
+      ]
+    });
 
-    logger.sendLog(newMember.guild.id, embed);
+    logger.sendLog(guild.id, embed);
   }
 
-  const addedRoles = newMember.roles.cache.filter(r => !oldMember.roles.cache.has(r.id) && r.id !== newMember.guild.id);
-  const removedRoles = oldMember.roles.cache.filter(r => !newMember.roles.cache.has(r.id) && r.id !== newMember.guild.id);
+  
+  const addedRoles = newMember.roles.cache.filter(r => 
+    !oldMember.roles.cache.has(r.id) && r.id !== guild.id
+  );
+
+  const removedRoles = oldMember.roles.cache.filter(r => 
+    !newMember.roles.cache.has(r.id) && r.id !== guild.id
+  );
 
   if (addedRoles.size > 0) {
-    const embed = new EmbedBuilder()
-      .setColor(0x22c55e)
-      .setTitle("Cargo adicionado")
-      .addFields(
-        { name: "User", value: `<@${newMember.id}>` },
-        { name: "Cargos", value: addedRoles.map(r => `<@&${r.id}>`).join(", ") }
-      );
+    const executor = await logger.getExecutor(guild, AuditLogEvent.MemberRoleUpdate, user.id);
 
-    logger.sendLog(newMember.guild.id, embed);
+    const embed = logger.createEmbed({
+      title: "🟢 Cargo Adicionado",
+      color: logger.COLORS.success,
+      user,
+      executor,
+      fields: [
+        { name: "Cargos", value: addedRoles.map(r => `<@&${r.id}>`).join(", ") }
+      ]
+    });
+
+    logger.sendLog(guild.id, embed);
   }
 
   if (removedRoles.size > 0) {
-    const embed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("Cargo removido")
-      .addFields(
-        { name: "User", value: `<@${newMember.id}>` },
-        { name: "Cargos", value: removedRoles.map(r => `<@&${r.id}>`).join(", ") }
-      );
+    const executor = await logger.getExecutor(guild, AuditLogEvent.MemberRoleUpdate, user.id);
 
-    logger.sendLog(newMember.guild.id, embed);
+    const embed = logger.createEmbed({
+      title: "🔴 Cargo Removido",
+      color: logger.COLORS.error,
+      user,
+      executor,
+      fields: [
+        { name: "Cargos", value: removedRoles.map(r => `<@&${r.id}>`).join(", ") }
+      ]
+    });
+
+    logger.sendLog(guild.id, embed);
   }
 });
+
+
+
 
 client.on("guildMemberAdd", async (member) => {
-  const embed = new EmbedBuilder()
-    .setColor(0x22c55e)
-    .setTitle("👋 Entrou")
-    .addFields(
-      { name: "User", value: `<@${member.id}>` },
-      { name: "Total", value: member.guild.memberCount.toString() }
-    );
+  const user = member.user;
+
+  const embed = logger.createEmbed({
+    title: "👋 Novo Membro",
+    color: logger.COLORS.success,
+    user,
+    fields: [
+      { name: "📊 Total", value: `${member.guild.memberCount}`, inline: true }
+    ]
+  });
 
   logger.sendLog(member.guild.id, embed);
 });
+
 
 client.on("guildMemberRemove", async (member) => {
-  const embed = new EmbedBuilder()
-    .setColor(0xef4444)
-    .setTitle("👋 Saiu")
-    .addFields(
-      { name: "User", value: `<@${member.id}>` },
-      { name: "Total", value: member.guild.memberCount.toString() }
-    );
+  const user = member.user;
+
+  const embed = logger.createEmbed({
+    title: "🚪 Membro Saiu",
+    color: logger.COLORS.error,
+    user,
+    fields: [
+      { name: "📊 Total", value: `${member.guild.memberCount}`, inline: true }
+    ]
+  });
 
   logger.sendLog(member.guild.id, embed);
 });
 
-client.on("messageCreate", async (message) => {
-  if (!message.content.startsWith("!") || message.author.bot) return;
 
-  const args = message.content.slice(1).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-
-  if (command === "logset" && message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-    const channel = message.mentions.channels.first();
-    if (!channel) return message.reply("❌ use !logset #canal");
-
-    logger.customLogs.set(message.guild.id, channel.id);
-    logger.saveCustomLogs();
-    return message.reply("✅ Logs configurados");
-  }
-
-  if (command === "logremove" && message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-    logger.customLogs.delete(message.guild.id);
-    logger.saveCustomLogs();
-    return message.reply("🗑️ removido");
-  }
-
-  if (command === "logstats") {
-    const stats = logger.stats.get(message.guild.id) || { total: 0 };
-
-    const embed = new EmbedBuilder()
-      .setTitle("📊 Stats")
-      .setColor(Colors.Blue)
-      .addFields(
-        { name: "Total logs", value: stats.total.toString(), inline: true },
-        { name: "Servidor", value: message.guild.name, inline: true }
-      );
-
-    return message.reply({ embeds: [embed] });
-  }
-});
 
 client.on("messageDelete", async (msg) => {
   if (!msg.guild || msg.author?.bot) return;
   if (logger.whitelist.has(msg.author.id)) return;
 
-  const embed = new EmbedBuilder()
-    .setColor(0xef4444)
-    .setTitle("🗑️ Mensagem deletada")
-    .addFields(
-      { name: "User", value: `<@${msg.author.id}>` },
-      { name: "Canal", value: `<#${msg.channel.id}>` },
-      { name: "Conteúdo", value: msg.content || "vazio" }
-    );
+  const user = msg.author;
+
+  const embed = logger.createEmbed({
+    title: "🗑️ Mensagem Deletada",
+    color: logger.COLORS.error,
+    user,
+    fields: [
+      { name: "📍 Canal", value: `<#${msg.channel.id}>`, inline: true },
+      { name: "💬 Conteúdo", value: msg.content?.slice(0, 1000) || "Sem conteúdo" }
+    ]
+  });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setLabel("Perfil")
+      .setLabel("Ver Perfil")
       .setStyle(ButtonStyle.Link)
-      .setURL(`https://discord.com/users/${msg.author.id}`)
+      .setURL(`https://discord.com/users/${user.id}`)
   );
 
   logger.sendLog(msg.guild.id, embed, row);
 });
+
+
+
 
 client.on("messageUpdate", async (oldMsg, newMsg) => {
   if (!oldMsg.guild || oldMsg.author?.bot) return;
   if (logger.whitelist.has(oldMsg.author.id)) return;
   if (oldMsg.content === newMsg.content) return;
 
-  const embed = new EmbedBuilder()
-    .setColor(0xf59e0b)
-    .setTitle("✏️ Editada")
-    .addFields(
-      { name: "User", value: `<@${oldMsg.author.id}>` },
-      { name: "Antes", value: oldMsg.content || "vazio" },
-      { name: "Depois", value: newMsg.content || "vazio" }
-    );
+  const user = oldMsg.author;
+
+  const embed = logger.createEmbed({
+    title: "✏️ Mensagem Editada",
+    color: logger.COLORS.warning,
+    user,
+    fields: [
+      { name: "📍 Canal", value: `<#${oldMsg.channel.id}>` },
+      { name: "Antes", value: oldMsg.content?.slice(0, 1000) || "Sem conteúdo" },
+      { name: "Depois", value: newMsg.content?.slice(0, 1000) || "Sem conteúdo" }
+    ]
+  });
 
   logger.sendLog(oldMsg.guild.id, embed);
 });
 
+
+
+
 client.on("channelCreate", async (channel) => {
   const embed = new EmbedBuilder()
-    .setColor(0x22c55e)
-    .setTitle("📁 Canal criado")
+    .setColor(logger.COLORS.success)
+    .setTitle("📁 Canal Criado")
     .addFields(
-      { name: "Nome", value: channel.name, inline: true },
-      { name: "ID", value: channel.id, inline: true }
-    );
+      { name: "📌 Nome", value: channel.name, inline: true },
+      { name: "🆔 ID", value: `\`${channel.id}\``, inline: true }
+    )
+    .setTimestamp();
 
   logger.sendLog(channel.guild.id, embed);
 });
+
 
 client.on("channelDelete", async (channel) => {
   const embed = new EmbedBuilder()
-    .setColor(0xef4444)
-    .setTitle("🗑️ Canal deletado")
+    .setColor(logger.COLORS.error)
+    .setTitle("🗑️ Canal Deletado")
     .addFields(
-      { name: "Nome", value: channel.name, inline: true },
-      { name: "ID", value: channel.id, inline: true }
-    );
+      { name: "📌 Nome", value: channel.name, inline: true },
+      { name: "🆔 ID", value: `\`${channel.id}\``, inline: true }
+    )
+    .setTimestamp();
 
   logger.sendLog(channel.guild.id, embed);
 });
+
 
 client.on("channelUpdate", async (oldCh, newCh) => {
   if (oldCh.name === newCh.name) return;
 
   const embed = new EmbedBuilder()
-    .setColor(0xf59e0b)
-    .setTitle("✏️ Canal atualizado")
+    .setColor(logger.COLORS.warning)
+    .setTitle("✏️ Canal Atualizado")
     .addFields(
       { name: "Antes", value: oldCh.name, inline: true },
       { name: "Depois", value: newCh.name, inline: true }
-    );
+    )
+    .setTimestamp();
 
   logger.sendLog(newCh.guild.id, embed);
 });
 
+
+
+
 client.on("roleCreate", async (role) => {
   const embed = new EmbedBuilder()
-    .setColor(0x22c55e)
-    .setTitle("🎖️ Cargo criado")
+    .setColor(logger.COLORS.success)
+    .setTitle("🎖️ Cargo Criado")
     .addFields({ name: "Nome", value: role.name });
 
   logger.sendLog(role.guild.id, embed);
 });
+
 
 client.on("roleDelete", async (role) => {
   const embed = new EmbedBuilder()
-    .setColor(0xef4444)
-    .setTitle("🎖️ Cargo deletado")
+    .setColor(logger.COLORS.error)
+    .setTitle("🎖️ Cargo Deletado")
     .addFields({ name: "Nome", value: role.name });
 
   logger.sendLog(role.guild.id, embed);
 });
+
 
 client.on("roleUpdate", async (oldRole, newRole) => {
   if (oldRole.name === newRole.name) return;
 
   const embed = new EmbedBuilder()
-    .setColor(0xf59e0b)
-    .setTitle("✏️ Cargo atualizado")
+    .setColor(logger.COLORS.warning)
+    .setTitle("✏️ Cargo Atualizado")
     .addFields(
       { name: "Antes", value: oldRole.name, inline: true },
       { name: "Depois", value: newRole.name, inline: true }
@@ -352,54 +485,92 @@ client.on("roleUpdate", async (oldRole, newRole) => {
   logger.sendLog(newRole.guild.id, embed);
 });
 
+
+
+
 const spamMap = new Map();
 
 client.on("messageCreate", async (msg) => {
   if (!msg.guild || msg.author.bot) return;
 
-  const data = spamMap.get(msg.author.id) || { count: 0 };
-  data.count++;
-  spamMap.set(msg.author.id, data);
+  const userId = msg.author.id;
 
-  setTimeout(() => data.count--, 5000);
+  const data = spamMap.get(userId) || {
+    count: 0,
+    last: Date.now()
+  };
+
+  data.count++;
+  data.last = Date.now();
+  spamMap.set(userId, data);
+
+  setTimeout(() => {
+    data.count--;
+  }, 4000);
 
   if (data.count >= 6) {
     msg.delete().catch(() => {});
 
-    const embed = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle("🚫 Spam detectado")
-      .addFields({ name: "User", value: `<@${msg.author.id}>` });
+    const embed = logger.createEmbed({
+      title: "🚫 Spam Detectado",
+      color: logger.COLORS.error,
+      user: msg.author,
+      fields: [
+        { name: "📍 Canal", value: `<#${msg.channel.id}>` },
+        { name: "⚠️ Ação", value: "Mensagem removida automaticamente" }
+      ]
+    });
 
     logger.sendLog(msg.guild.id, embed);
   }
 });
+
+
+
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "logset") {
     if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return;
+
     const channel = interaction.options.getChannel("canal");
     logger.customLogs.set(interaction.guild.id, channel.id);
     logger.saveCustomLogs();
-    return interaction.reply({ content: "✅ setado", ephemeral: true });
+
+    return interaction.reply({
+      content: "✅ Canal de logs configurado com sucesso!",
+      ephemeral: true
+    });
   }
 
   if (interaction.commandName === "logremove") {
     if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return;
+
     logger.customLogs.delete(interaction.guild.id);
     logger.saveCustomLogs();
-    return interaction.reply({ content: "🗑️ removido", ephemeral: true });
+
+    return interaction.reply({
+      content: "🗑️ Sistema de logs removido!",
+      ephemeral: true
+    });
   }
 
   if (interaction.commandName === "whitelist") {
     if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return;
+
     const user = interaction.options.getUser("usuario");
     logger.whitelist.add(user.id);
-    return interaction.reply({ content: "✅ add", ephemeral: true });
+
+    return interaction.reply({
+      content: `✅ ${user.tag} foi adicionado à whitelist`,
+      ephemeral: true
+    });
   }
 });
+
+
+
 
 const app = express();
 
@@ -407,10 +578,10 @@ app.get("/", (req, res) => {
   res.send({
     status: "online",
     servers: client.guilds.cache.size,
-    users: client.users.cache.size
+    users: client.users.cache.size,
+    version: "ULTRA PRO"
   });
 });
 
 app.listen(3000);
-
-};
+}
