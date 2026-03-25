@@ -10,6 +10,9 @@ const {
 
 const fs = require("fs");
 const express = require("express");
+const afkTimers = new Map();
+const AFK_CHANNEL_ID = "1476321423042543706";
+const AFK_TIME = 5 * 60 * 1000;
 
 module.exports = (client) => {
 
@@ -150,6 +153,48 @@ class LoggerPro {
 
 const logger = new LoggerPro();
 
+function resetAfkTimer(member, voiceState) {
+  if (!member || !voiceState?.channelId) return;
+
+  if (afkTimers.has(member.id)) {
+    clearTimeout(afkTimers.get(member.id));
+  }
+
+  if (voiceState.channelId === AFK_CHANNEL_ID) return;
+
+  const timer = setTimeout(async () => {
+    try {
+      const guild = voiceState.guild;
+      const freshMember = await guild.members.fetch(member.id).catch(() => null);
+      if (!freshMember?.voice?.channelId) return;
+
+      if (freshMember.voice.channelId === AFK_CHANNEL_ID) return;
+
+      const afkChannel = guild.channels.cache.get(AFK_CHANNEL_ID);
+      if (!afkChannel) return;
+
+      await freshMember.voice.setChannel(afkChannel).catch(() => {});
+
+      const embed = new EmbedBuilder()
+        .setColor(0xf59e0b)
+        .setTitle("💤 Membro movido por AFK")
+        .setThumbnail(freshMember.user.displayAvatarURL({ dynamic: true }))
+        .setDescription(`😴 **${freshMember.user.tag}** ficou AFK por mais de 5 minutos`)
+        .addFields(
+          { name: "👤 Usuário", value: `<@${freshMember.id}>`, inline: true },
+          { name: "🆔 ID", value: freshMember.id, inline: true },
+          { name: "📥 Movido para", value: `<#${AFK_CHANNEL_ID}>`, inline: true }
+        )
+        .setTimestamp();
+
+      logger.sendLog(guild.id, embed);
+      afkTimers.delete(member.id);
+    } catch {}
+  }, AFK_TIME);
+
+  afkTimers.set(member.id, timer);
+}
+
 
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
@@ -170,6 +215,33 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       return null;
     }
   };
+
+  const channelNow = newState.channelId;
+  const wasInVoice = !!oldState.channelId;
+  const isInVoice = !!newState.channelId;
+
+  
+  if (isInVoice && channelNow !== AFK_CHANNEL_ID) {
+    const changedActivity =
+      oldState.channelId !== newState.channelId ||
+      oldState.selfMute !== newState.selfMute ||
+      oldState.selfDeaf !== newState.selfDeaf ||
+      oldState.serverMute !== newState.serverMute ||
+      oldState.serverDeaf !== newState.serverDeaf ||
+      oldState.selfVideo !== newState.selfVideo ||
+      oldState.streaming !== newState.streaming;
+
+    if (changedActivity) {
+      resetAfkTimer(member, newState);
+    }
+  }
+
+  if (!isInVoice || channelNow === AFK_CHANNEL_ID) {
+    if (afkTimers.has(member.id)) {
+      clearTimeout(afkTimers.get(member.id));
+      afkTimers.delete(member.id);
+    }
+  }
 
   
   if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
@@ -196,7 +268,9 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   }
 
   
-  if (!oldState.channelId && newState.channelId) {
+  if (!wasInVoice && isInVoice) {
+    resetAfkTimer(member, newState);
+
     const embed = new EmbedBuilder()
       .setColor(0x22c55e)
       .setTitle("🎧 Entrou na call")
@@ -213,7 +287,12 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   }
 
   
-  if (oldState.channelId && !newState.channelId) {
+  if (wasInVoice && !isInVoice) {
+    if (afkTimers.has(member.id)) {
+      clearTimeout(afkTimers.get(member.id));
+      afkTimers.delete(member.id);
+    }
+
     const embed = new EmbedBuilder()
       .setColor(0xf59e0b)
       .setTitle("📤 Saiu da call")
@@ -405,7 +484,7 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
   const guild = newMember.guild;
   const user = newMember.user;
 
-  // ========= NICKNAME =========
+ 
   if (oldMember.nickname !== newMember.nickname) {
     let executor = null;
 
@@ -437,7 +516,7 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
     logger.sendLog(guild.id, embed);
   }
 
-  // ========= ROLES =========
+  
   const addedRoles = newMember.roles.cache.filter(
     r => !oldMember.roles.cache.has(r.id) && r.id !== guild.id
   );
@@ -492,7 +571,7 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
     logger.sendLog(guild.id, embed);
   }
 
-  // ========= TIMEOUT =========
+  
   if (oldMember.communicationDisabledUntilTimestamp !== newMember.communicationDisabledUntilTimestamp) {
     let executor = null;
 
