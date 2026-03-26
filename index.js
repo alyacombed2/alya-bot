@@ -29,6 +29,7 @@ const ZIP_FILE_NAME = "alya-bot-main.zip";
 require("./systems/main")(client);
 require("./systems/gfzin")(client);
 require("./systems/coco")(client);
+require("./systems/SuaIrma")(client);
 
 client.once("clientReady", () => {
   console.log(`✅ Bot online como ${client.user.tag}`);
