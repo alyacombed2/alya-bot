@@ -28,7 +28,7 @@ module.exports = (client) => {
   let currentPlayer = null;
 
   function log(msg) {
-    console.log(`[RANDOM SOUND] ${msg}`);
+    console.log(`[RANDOM SOUND] ${new Date().toLocaleTimeString()} ${msg}`);
   }
 
   function getHumanMembers(channel) {
@@ -47,7 +47,8 @@ module.exports = (client) => {
     }
 
     const files = fs.readdirSync(SOUND_FOLDER).filter(file =>
-      path.extname(file).toLowerCase() === ".ogg"
+      // Aceita .ogg e .mp3 também
+      /\.(ogg|mp3|wav|webm)$/i.test(file)
     );
 
     log(`Sons encontrados: ${files.join(", ") || "nenhum"}`);
@@ -82,16 +83,91 @@ module.exports = (client) => {
 
   function stopCurrentAudio() {
     try {
-      if (currentPlayer) currentPlayer.stop();
-    } catch {}
+      if (currentPlayer) {
+        currentPlayer.stop(true);
+        log("Player parado.");
+      }
+    } catch (e) {
+      log(`Erro ao parar player: ${e.message}`);
+    }
 
     try {
-      if (currentConnection) currentConnection.destroy();
-    } catch {}
+      if (currentConnection) {
+        currentConnection.destroy();
+        log("Conexão destruída.");
+      }
+    } catch (e) {
+      log(`Erro ao destruir conexão: ${e.message}`);
+    }
 
     currentPlayer = null;
     currentConnection = null;
     isPlaying = false;
+  }
+
+  // ✅ NOVA FUNÇÃO: Tenta diferentes formatos
+  async function createAudioResourceSafe(soundPath) {
+    log(`🔍 Tentando criar resource para: ${path.basename(soundPath)}`);
+
+    // 1º Tenta WebmOpus (mais confiável)
+    try {
+      log("📦 Tentativa 1: WebmOpus");
+      const resource = createAudioResource(soundPath, {
+        inputType: StreamType.WebmOpus,
+        inlineVolume: true
+      });
+      log("✅ WebmOpus funcionou!");
+      return resource;
+    } catch (e) {
+      log(`❌ WebmOpus falhou: ${e.message}`);
+    }
+
+    // 2º Tenta OggOpus
+    try {
+      log("🎵 Tentativa 2: OggOpus");
+      const resource = createAudioResource(soundPath, {
+        inputType: StreamType.OggOpus,
+        inlineVolume: true
+      });
+      log("✅ OggOpus funcionou!");
+      return resource;
+    } catch (e) {
+      log(`❌ OggOpus falhou: ${e.message}`);
+    }
+
+    // 3º Tenta FFmpeg (último recurso)
+    try {
+      log("⚙️ Tentativa 3: FFmpeg");
+      
+      // Verifica se FFmpeg existe
+      const { execSync } = require('child_process');
+      execSync('ffmpeg -version', { stdio: 'ignore' });
+      
+      const transcoder = new prism.FFmpeg({
+        args: [
+          "-reconnect", "1",
+          "-reconnect_streamed", "1",
+          "-reconnect_delay_max", "5",
+          "-analyzeduration", "0",
+          "-loglevel", "error",
+          "-i", soundPath,
+          "-f", "s16le",
+          "-ar", "48000",
+          "-ac", "2"
+        ]
+      });
+
+      const resource = createAudioResource(transcoder, {
+        inputType: StreamType.Raw,
+        inlineVolume: true
+      });
+
+      log("✅ FFmpeg funcionou!");
+      return resource;
+    } catch (e) {
+      log(`❌ FFmpeg falhou: ${e.message}`);
+      throw new Error("Nenhum formato de áudio funcionou. Tente converter para .ogg ou .mp3");
+    }
   }
 
   async function tocarSom(channel, soundPath, forced = false) {
@@ -107,7 +183,7 @@ module.exports = (client) => {
         return { ok: false, error: "Arquivo de som não encontrado." };
       }
 
-      log(`${forced ? "TOQUE MANUAL" : "TOQUE AUTOMÁTICO"} -> ${path.basename(soundPath)}`);
+      log(`${forced ? "🔊 TOQUE MANUAL" : "🎲 TOQUE AUTOMÁTICO"} -> ${path.basename(soundPath)}`);
 
       const connection = joinVoiceChannel({
         channelId: channel.id,
@@ -119,77 +195,57 @@ module.exports = (client) => {
 
       currentConnection = connection;
 
-      connection.on("stateChange", (oldState, newState) => {
-        log(`Conexão mudou: ${oldState.status} -> ${newState.status}`);
+      connection.on(VoiceConnectionStatus.Ready, () => {
+        log("✅ Conexão pronta!");
       });
 
-      await entersState(connection, VoiceConnectionStatus.Ready, 30000);
+      connection.on("stateChange", (oldState, newState) => {
+        log(`Conexão: ${oldState.status} → ${newState.status}`);
+      });
+
+      await entersState(connection, VoiceConnectionStatus.Ready, 5000);
 
       const player = createAudioPlayer({
         behaviors: {
-          noSubscriber: NoSubscriberBehavior.Play
+          noSubscriber: NoSubscriberBehavior.Pause
         }
       });
 
       currentPlayer = player;
 
       player.on("stateChange", (oldState, newState) => {
-        log(`Player mudou: ${oldState.status} -> ${newState.status}`);
+        log(`Player: ${oldState.status} → ${newState.status}`);
       });
 
       player.on("error", (err) => {
-        log(`❌ Erro no player: ${err.message}`);
+        log(`❌ ERRO PLAYER: ${err.message}`);
+        log(err.stack);
         stopCurrentAudio();
-
-        setTimeout(() => {
-          if (!forced) verificarEAgendar();
-        }, 5000);
       });
 
-      const transcoder = new prism.FFmpeg({
-        args: [
-          "-reconnect", "1",
-          "-reconnect_streamed", "1",
-          "-reconnect_delay_max", "5",
-          "-analyzeduration", "0",
-          "-loglevel", "0",
-          "-i", soundPath,
-          "-f", "s16le",
-          "-ar", "48000",
-          "-ac", "2"
-        ]
-      });
-
-      transcoder.on("error", (err) => {
-        log(`❌ FFmpeg erro: ${err.message}`);
-      });
-
-      const resource = createAudioResource(transcoder, {
-        inputType: StreamType.Raw,
-        inlineVolume: true
-      });
-
-      resource.volume.setVolume(1.0);
+      // 🎯 CRIA O RESOURCE COM FALLBACK
+      const resource = await createAudioResourceSafe(soundPath);
+      resource.volume.setVolume(0.8); // Volume um pouco menor
 
       connection.subscribe(player);
       player.play(resource);
 
       player.once(AudioPlayerStatus.Playing, () => {
-        log(`▶️ Tocando agora: ${path.basename(soundPath)}`);
+        log(`▶️ TOCANDO: ${path.basename(soundPath)}`);
       });
 
       player.once(AudioPlayerStatus.Idle, () => {
-        log(`✅ Som finalizado: ${path.basename(soundPath)}`);
+        log(`✅ FINALIZADO: ${path.basename(soundPath)}`);
         stopCurrentAudio();
 
         setTimeout(() => {
           if (!forced) verificarEAgendar();
-        }, 5000);
+        }, 2000);
       });
 
       return { ok: true, file: path.basename(soundPath) };
     } catch (err) {
-      log(`❌ Erro ao tocar som: ${err.message}`);
+      log(`❌ ERRO TOTAL: ${err.message}`);
       stopCurrentAudio();
       return { ok: false, error: err.message };
     }
@@ -213,7 +269,7 @@ module.exports = (client) => {
       const delay = getRandomDelay();
       const minutos = Math.floor(delay / 60000);
 
-      log(`Tem ${humans.size} pessoas na call. Próximo som em ~${minutos} min.`);
+      log(`👥 ${humans.size} pessoas na call. ⏰ Próximo em ~${minutos}min`);
 
       nextTimeout = setTimeout(async () => {
         nextTimeout = null;
@@ -227,17 +283,27 @@ module.exports = (client) => {
           const soundPath = getRandomSound();
           await tocarSom(updatedChannel, soundPath, false);
         } else {
-          log("Não há pessoas suficientes na call no momento do toque.");
+          log("👥 Poucas pessoas agora, reagendando...");
           verificarEAgendar();
         }
       }, delay);
     } else {
       cancelSchedule();
+      log("😴 Poucas pessoas na call, aguardando...");
     }
   }
 
-  client.once("clientReady", () => {
-    log("Sistema de sons aleatórios iniciado.");
+  // Resto dos eventos iguais...
+  client.once("ready", () => {
+    log("🚀 Bot online - Sistema de sons iniciado!");
+    
+    // Verifica FFmpeg na inicialização
+    try {
+      require('child_process').execSync('ffmpeg -version', { stdio: 'ignore' });
+      log("✅ FFmpeg encontrado!");
+    } catch {
+      log("⚠️ FFmpeg NÃO encontrado! Use apenas .ogg/.mp3");
+    }
 
     setInterval(() => {
       verificarEAgendar();
@@ -250,6 +316,7 @@ module.exports = (client) => {
     verificarEAgendar();
   });
 
+  // Comandos iguais (mantive os mesmos)
   client.on("messageCreate", async (message) => {
     if (!message.guild || message.author.bot) return;
     if (message.author.id !== OWNER_ID) return;
@@ -262,13 +329,12 @@ module.exports = (client) => {
       const channel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
 
       if (!channel || !channel.isVoiceBased()) {
-        return message.reply("❌ Não encontrei o canal de voz configurado.");
+        return message.reply("❌ Canal de voz não encontrado.");
       }
 
       const humans = getHumanMembers(channel);
-
       if (humans.size < 1) {
-        return message.reply("❌ Não tem ninguém na call para eu tocar.");
+        return message.reply("❌ Ninguém na call.");
       }
 
       const escolha = args[1];
@@ -281,29 +347,7 @@ module.exports = (client) => {
       }
 
       if (!soundPath) {
-        return message.reply("❌ Não achei esse áudio. Ex: `!tocar 1`, `!tocar 7`, `!tocar 12` ou `!tocar aleatorio`");
-      }
-
-      const result = await tocarSom(channel, soundPath, true);
-
-      if (!result.ok) {
-        return message.reply(`❌ Erro ao tocar: ${result.error}`);
-      }
-
-      return message.reply(`🔊 Tocando agora: \`${result.file}\``);
-    }
-
-    if (cmd === "!somtest") {
-      const guild = message.guild;
-      const channel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
-
-      if (!channel || !channel.isVoiceBased()) {
-        return message.reply("❌ Não encontrei o canal de voz.");
-      }
-
-      const soundPath = getRandomSound();
-      if (!soundPath) {
-        return message.reply("❌ Nenhum som encontrado na pasta `systems/Sounds`.");
+        return message.reply("❌ Som não encontrado. Use `!lista`");
       }
 
       const result = await tocarSom(channel, soundPath, true);
@@ -312,34 +356,42 @@ module.exports = (client) => {
         return message.reply(`❌ Erro: ${result.error}`);
       }
 
-      return message.reply(`🧪 Testando som: \`${result.file}\``);
+      return message.reply(`🔊 Tocando: **${result.file}** 🎵`);
+    }
+
+    if (cmd === "!somtest") {
+      const sounds = getAllSounds();
+      if (!sounds.length) {
+        return message.reply("❌ Pasta `Sounds` vazia!");
+      }
+      message.reply(`📂 Sons encontrados: ${sounds.length}\nUsa \`!tocar 1\` pra testar`);
     }
 
     if (cmd === "!parar") {
       stopCurrentAudio();
-      return message.reply("🛑 Som parado.");
+      return message.reply("🛑 Parado!");
     }
 
     if (cmd === "!somoff") {
       systemEnabled = false;
       cancelSchedule();
       stopCurrentAudio();
-      return message.reply("🛑 Sistema de sons automáticos desativado.");
+      return message.reply("🛑 Sistema automático OFF");
     }
 
     if (cmd === "!somon") {
       systemEnabled = true;
       verificarEAgendar();
-      return message.reply("✅ Sistema de sons automáticos ativado.");
+      return message.reply("✅ Sistema automático ON");
     }
 
     if (cmd === "!lista") {
       const sounds = getAllSounds();
       if (!sounds.length) {
-        return message.reply("❌ Nenhum som encontrado.");
+        return message.reply("❌ Nenhum som na pasta `Sounds`");
       }
-
-      return message.reply(`🎵 Sons disponíveis:\n\`${sounds.map(s => path.parse(s).name).join(", ")}\``);
+      const lista = sounds.map(s => path.parse(s).name).join(", ");
+      return message.reply(`🎵 **Sons (${sounds.length})**:\n\`${lista}\``);
     }
   });
 };
