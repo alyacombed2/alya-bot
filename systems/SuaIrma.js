@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const prism = require("prism-media");
+const ffmpegStatic = require('ffmpeg-static'); // <- ADICIONE ESTA LINHA
 
 const {
   joinVoiceChannel,
@@ -28,7 +29,7 @@ module.exports = (client) => {
   let currentPlayer = null;
 
   function log(msg) {
-    console.log(`[RANDOM SOUND] ${new Date().toLocaleTimeString()} ${msg}`);
+    console.log(`[SOM] ${new Date().toLocaleTimeString()} ${msg}`);
   }
 
   function getHumanMembers(channel) {
@@ -42,118 +43,65 @@ module.exports = (client) => {
 
   function getAllSounds() {
     if (!fs.existsSync(SOUND_FOLDER)) {
-      log(`❌ Pasta não encontrada: ${SOUND_FOLDER}`);
+      fs.mkdirSync(SOUND_FOLDER, { recursive: true });
+      log(`📁 Criada pasta: ${SOUND_FOLDER}`);
       return [];
     }
 
     const files = fs.readdirSync(SOUND_FOLDER).filter(file =>
-      // Aceita .ogg e .mp3 também
-      /\.(ogg|mp3|wav|webm)$/i.test(file)
+      /\.(ogg|mp3|wav)$/i.test(file)
     );
 
-    log(`Sons encontrados: ${files.join(", ") || "nenhum"}`);
+    log(`🎵 Sons: ${files.length} (${files.join(", ") || "vazio"})`);
     return files;
   }
 
   function getRandomSound() {
     const files = getAllSounds();
-    if (!files.length) return null;
-
-    const randomFile = files[Math.floor(Math.random() * files.length)];
-    return path.join(SOUND_FOLDER, randomFile);
+    return files.length ? path.join(SOUND_FOLDER, files[Math.floor(Math.random() * files.length)]) : null;
   }
 
   function getSpecificSound(nameOrNumber) {
     const files = getAllSounds();
-    if (!files.length) return null;
-
     const found = files.find(file => path.parse(file).name === String(nameOrNumber));
-    if (!found) return null;
-
-    return path.join(SOUND_FOLDER, found);
-  }
-
-  function cancelSchedule() {
-    if (nextTimeout) {
-      clearTimeout(nextTimeout);
-      nextTimeout = null;
-      log("Agendamento cancelado.");
-    }
+    return found ? path.join(SOUND_FOLDER, found) : null;
   }
 
   function stopCurrentAudio() {
-    try {
-      if (currentPlayer) {
-        currentPlayer.stop(true);
-        log("Player parado.");
-      }
-    } catch (e) {
-      log(`Erro ao parar player: ${e.message}`);
-    }
-
-    try {
-      if (currentConnection) {
-        currentConnection.destroy();
-        log("Conexão destruída.");
-      }
-    } catch (e) {
-      log(`Erro ao destruir conexão: ${e.message}`);
-    }
-
+    if (currentPlayer) currentPlayer.stop(true);
+    if (currentConnection) currentConnection.destroy();
     currentPlayer = null;
     currentConnection = null;
     isPlaying = false;
+    log("🛑 Áudio parado");
   }
 
-  // ✅ NOVA FUNÇÃO: Tenta diferentes formatos
+  // 🔥 FUNÇÃO PRINCIPAL CORRIGIDA
   async function createAudioResourceSafe(soundPath) {
-    log(`🔍 Tentando criar resource para: ${path.basename(soundPath)}`);
+    log(`🎧 Processando: ${path.basename(soundPath)}`);
 
-    // 1º Tenta WebmOpus (mais confiável)
+    // Tenta OggOpus primeiro (rápido)
     try {
-      log("📦 Tentativa 1: WebmOpus");
-      const resource = createAudioResource(soundPath, {
-        inputType: StreamType.WebmOpus,
-        inlineVolume: true
-      });
-      log("✅ WebmOpus funcionou!");
-      return resource;
-    } catch (e) {
-      log(`❌ WebmOpus falhou: ${e.message}`);
-    }
-
-    // 2º Tenta OggOpus
-    try {
-      log("🎵 Tentativa 2: OggOpus");
       const resource = createAudioResource(soundPath, {
         inputType: StreamType.OggOpus,
         inlineVolume: true
       });
-      log("✅ OggOpus funcionou!");
+      log("✅ OggOpus direto!");
       return resource;
-    } catch (e) {
-      log(`❌ OggOpus falhou: ${e.message}`);
-    }
+    } catch {}
 
-    // 3º Tenta FFmpeg (último recurso)
+    // FFmpeg-static (FUNCIONA SEMPRE)
     try {
-      log("⚙️ Tentativa 3: FFmpeg");
-      
-      // Verifica se FFmpeg existe
-      const { execSync } = require('child_process');
-      execSync('ffmpeg -version', { stdio: 'ignore' });
-      
+      log("⚙️ Usando FFmpeg-static...");
       const transcoder = new prism.FFmpeg({
+        path: ffmpegStatic,
         args: [
-          "-reconnect", "1",
-          "-reconnect_streamed", "1",
-          "-reconnect_delay_max", "5",
-          "-analyzeduration", "0",
-          "-loglevel", "error",
           "-i", soundPath,
           "-f", "s16le",
           "-ar", "48000",
-          "-ac", "2"
+          "-ac", "2",
+          "-vn",
+          "-loglevel", "error"
         ]
       });
 
@@ -161,237 +109,132 @@ module.exports = (client) => {
         inputType: StreamType.Raw,
         inlineVolume: true
       });
-
-      log("✅ FFmpeg funcionou!");
+      
+      log("✅ FFmpeg-static OK!");
       return resource;
     } catch (e) {
-      log(`❌ FFmpeg falhou: ${e.message}`);
-      throw new Error("Nenhum formato de áudio funcionou. Tente converter para .ogg ou .mp3");
+      throw new Error(`Erro no áudio: ${e.message}`);
     }
   }
 
   async function tocarSom(channel, soundPath, forced = false) {
-    if (isPlaying) {
-      return { ok: false, error: "Já estou tocando um som agora." };
-    }
+    if (isPlaying) return { ok: false, error: "Já tocando..." };
 
     isPlaying = true;
-
+    
     try {
-      if (!soundPath || !fs.existsSync(soundPath)) {
-        isPlaying = false;
-        return { ok: false, error: "Arquivo de som não encontrado." };
-      }
-
-      log(`${forced ? "🔊 TOQUE MANUAL" : "🎲 TOQUE AUTOMÁTICO"} -> ${path.basename(soundPath)}`);
+      log(`${forced ? "👆 MANUAL" : "🎲 AUTO"} ${path.basename(soundPath)}`);
 
       const connection = joinVoiceChannel({
         channelId: channel.id,
         guildId: channel.guild.id,
-        adapterCreator: channel.guild.voiceAdapterCreator,
-        selfDeaf: false,
-        selfMute: false
+        adapterCreator: channel.guild.voiceAdapterCreator
       });
 
       currentConnection = connection;
-
-      connection.on(VoiceConnectionStatus.Ready, () => {
-        log("✅ Conexão pronta!");
-      });
-
-      connection.on("stateChange", (oldState, newState) => {
-        log(`Conexão: ${oldState.status} → ${newState.status}`);
-      });
-
       await entersState(connection, VoiceConnectionStatus.Ready, 5000);
 
       const player = createAudioPlayer({
-        behaviors: {
-          noSubscriber: NoSubscriberBehavior.Pause
-        }
+        behaviors: { noSubscriber: NoSubscriberBehavior.Pause }
       });
-
       currentPlayer = player;
 
-      player.on("stateChange", (oldState, newState) => {
-        log(`Player: ${oldState.status} → ${newState.status}`);
-      });
-
-      player.on("error", (err) => {
-        log(`❌ ERRO PLAYER: ${err.message}`);
-        log(err.stack);
-        stopCurrentAudio();
-      });
-
-      // 🎯 CRIA O RESOURCE COM FALLBACK
       const resource = await createAudioResourceSafe(soundPath);
-      resource.volume.setVolume(0.8); // Volume um pouco menor
+      resource.volume.setVolume(0.8);
 
       connection.subscribe(player);
       player.play(resource);
 
-      player.once(AudioPlayerStatus.Playing, () => {
-        log(`▶️ TOCANDO: ${path.basename(soundPath)}`);
-      });
-
+      player.once(AudioPlayerStatus.Playing, () => log("▶️ TOCANDO!"));
       player.once(AudioPlayerStatus.Idle, () => {
-        log(`✅ FINALIZADO: ${path.basename(soundPath)}`);
+        log("✅ FINALIZOU");
         stopCurrentAudio();
-
-        setTimeout(() => {
-          if (!forced) verificarEAgendar();
-        }, 2000);
+        if (!forced) setTimeout(verificarEAgendar, 2000);
       });
 
       return { ok: true, file: path.basename(soundPath) };
     } catch (err) {
-      log(`❌ ERRO TOTAL: ${err.message}`);
+      log(`❌ ERRO: ${err.message}`);
       stopCurrentAudio();
       return { ok: false, error: err.message };
     }
   }
 
   function verificarEAgendar() {
-    if (!systemEnabled) return;
-    if (isPlaying) return;
+    if (!systemEnabled || isPlaying) return;
 
     const guild = client.guilds.cache.first();
     if (!guild) return;
 
     const channel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
-    if (!channel || !channel.isVoiceBased()) return;
+    if (!channel?.isVoiceBased()) return;
 
     const humans = getHumanMembers(channel);
-
-    if (humans.size >= 2) {
-      if (nextTimeout) return;
-
-      const delay = getRandomDelay();
-      const minutos = Math.floor(delay / 60000);
-
-      log(`👥 ${humans.size} pessoas na call. ⏰ Próximo em ~${minutos}min`);
-
-      nextTimeout = setTimeout(async () => {
-        nextTimeout = null;
-
-        const updatedChannel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
-        if (!updatedChannel || !updatedChannel.isVoiceBased()) return;
-
-        const updatedHumans = getHumanMembers(updatedChannel);
-
-        if (updatedHumans.size >= 2) {
-          const soundPath = getRandomSound();
-          await tocarSom(updatedChannel, soundPath, false);
-        } else {
-          log("👥 Poucas pessoas agora, reagendando...");
-          verificarEAgendar();
-        }
-      }, delay);
-    } else {
-      cancelSchedule();
-      log("😴 Poucas pessoas na call, aguardando...");
+    if (humans.size < 2) {
+      if (nextTimeout) clearTimeout(nextTimeout);
+      return;
     }
+
+    if (nextTimeout) return;
+
+    const delay = getRandomDelay();
+    log(`⏰ ${humans.size}ppl - próximo em ${Math.round(delay/60000)}min`);
+
+    nextTimeout = setTimeout(async () => {
+      const channel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
+      if (channel?.isVoiceBased() && getHumanMembers(channel).size >= 2) {
+        const sound = getRandomSound();
+        if (sound) await tocarSom(channel, sound);
+      }
+      verificarEAgendar();
+    }, delay);
   }
 
-  // Resto dos eventos iguais...
   client.once("ready", () => {
-    log("🚀 Bot online - Sistema de sons iniciado!");
+    log("🚀 SISTEMA ONLINE!");
+    log(`📁 Pasta: ${SOUND_FOLDER}`);
+    getAllSounds(); // Lista inicial
+    setInterval(verificarEAgendar, 30000);
+    verificarEAgendar();
+  });
+
+  client.on("voiceStateUpdate", verificarEAgendar);
+
+  client.on("messageCreate", async (msg) => {
+    if (msg.author.bot || msg.author.id !== OWNER_ID) return;
     
-    // Verifica FFmpeg na inicialização
-    try {
-      require('child_process').execSync('ffmpeg -version', { stdio: 'ignore' });
-      log("✅ FFmpeg encontrado!");
-    } catch {
-      log("⚠️ FFmpeg NÃO encontrado! Use apenas .ogg/.mp3");
-    }
+    const [cmd, arg] = msg.content.split(/\s+/);
+    const channel = msg.guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
 
-    setInterval(() => {
-      verificarEAgendar();
-    }, 30000);
+    switch (cmd?.toLowerCase()) {
+      case "!tocar":
+        if (!channel?.isVoiceBased()) return msg.reply("❌ Canal inválido");
+        if (getHumanMembers(channel).size < 1) return msg.reply("❌ Call vazia");
 
-    verificarEAgendar();
-  });
+        const sound = arg === "aleatorio" ? getRandomSound() : getSpecificSound(arg);
+        if (!sound) return msg.reply("❌ Som não existe. `!lista`");
 
-  client.on("voiceStateUpdate", () => {
-    verificarEAgendar();
-  });
+        const result = await tocarSom(channel, sound, true);
+        msg.reply(result.ok ? `🔊 **${result.file}**` : `❌ ${result.error}`);
 
-  // Comandos iguais (mantive os mesmos)
-  client.on("messageCreate", async (message) => {
-    if (!message.guild || message.author.bot) return;
-    if (message.author.id !== OWNER_ID) return;
+      case "!lista":
+        const sounds = getAllSounds();
+        msg.reply(sounds.length ? `🎵 **${sounds.length} sons**:\n\`${sounds.map(p=>path.parse(p).name).join(' | ')}\`` : "❌ Pasta vazia");
 
-    const args = message.content.trim().split(/\s+/);
-    const cmd = args[0]?.toLowerCase();
+      case "!parar":
+        stopCurrentAudio();
+        msg.reply("🛑 Parado");
 
-    if (cmd === "!tocar") {
-      const guild = message.guild;
-      const channel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
+      case "!somoff":
+        systemEnabled = false;
+        clearTimeout(nextTimeout);
+        stopCurrentAudio();
+        msg.reply("🛑 Auto OFF");
 
-      if (!channel || !channel.isVoiceBased()) {
-        return message.reply("❌ Canal de voz não encontrado.");
-      }
-
-      const humans = getHumanMembers(channel);
-      if (humans.size < 1) {
-        return message.reply("❌ Ninguém na call.");
-      }
-
-      const escolha = args[1];
-      let soundPath = null;
-
-      if (!escolha || escolha.toLowerCase() === "aleatorio") {
-        soundPath = getRandomSound();
-      } else {
-        soundPath = getSpecificSound(escolha);
-      }
-
-      if (!soundPath) {
-        return message.reply("❌ Som não encontrado. Use `!lista`");
-      }
-
-      const result = await tocarSom(channel, soundPath, true);
-
-      if (!result.ok) {
-        return message.reply(`❌ Erro: ${result.error}`);
-      }
-
-      return message.reply(`🔊 Tocando: **${result.file}** 🎵`);
-    }
-
-    if (cmd === "!somtest") {
-      const sounds = getAllSounds();
-      if (!sounds.length) {
-        return message.reply("❌ Pasta `Sounds` vazia!");
-      }
-      message.reply(`📂 Sons encontrados: ${sounds.length}\nUsa \`!tocar 1\` pra testar`);
-    }
-
-    if (cmd === "!parar") {
-      stopCurrentAudio();
-      return message.reply("🛑 Parado!");
-    }
-
-    if (cmd === "!somoff") {
-      systemEnabled = false;
-      cancelSchedule();
-      stopCurrentAudio();
-      return message.reply("🛑 Sistema automático OFF");
-    }
-
-    if (cmd === "!somon") {
-      systemEnabled = true;
-      verificarEAgendar();
-      return message.reply("✅ Sistema automático ON");
-    }
-
-    if (cmd === "!lista") {
-      const sounds = getAllSounds();
-      if (!sounds.length) {
-        return message.reply("❌ Nenhum som na pasta `Sounds`");
-      }
-      const lista = sounds.map(s => path.parse(s).name).join(", ");
-      return message.reply(`🎵 **Sons (${sounds.length})**:\n\`${lista}\``);
+      case "!somon":
+        systemEnabled = true;
+        verificarEAgendar();
+        msg.reply("✅ Auto ON");
     }
   });
 };
