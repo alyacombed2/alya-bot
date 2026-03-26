@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 const prism = require("prism-media");
-const ffmpeg = require("ffmpeg-static");
 
 const {
   joinVoiceChannel,
@@ -25,6 +24,8 @@ module.exports = (client) => {
   let nextTimeout = null;
   let isPlaying = false;
   let systemEnabled = true;
+  let currentConnection = null;
+  let currentPlayer = null;
 
   function log(msg) {
     console.log(`[RANDOM SOUND] ${msg}`);
@@ -79,6 +80,20 @@ module.exports = (client) => {
     }
   }
 
+  function stopCurrentAudio() {
+    try {
+      if (currentPlayer) currentPlayer.stop();
+    } catch {}
+
+    try {
+      if (currentConnection) currentConnection.destroy();
+    } catch {}
+
+    currentPlayer = null;
+    currentConnection = null;
+    isPlaying = false;
+  }
+
   async function tocarSom(channel, soundPath, forced = false) {
     if (isPlaying) {
       return { ok: false, error: "Já estou tocando um som agora." };
@@ -102,6 +117,8 @@ module.exports = (client) => {
         selfMute: false
       });
 
+      currentConnection = connection;
+
       connection.on("stateChange", (oldState, newState) => {
         log(`Conexão mudou: ${oldState.status} -> ${newState.status}`);
       });
@@ -114,17 +131,15 @@ module.exports = (client) => {
         }
       });
 
+      currentPlayer = player;
+
       player.on("stateChange", (oldState, newState) => {
         log(`Player mudou: ${oldState.status} -> ${newState.status}`);
       });
 
       player.on("error", (err) => {
         log(`❌ Erro no player: ${err.message}`);
-        try {
-          connection.destroy();
-        } catch {}
-
-        isPlaying = false;
+        stopCurrentAudio();
 
         setTimeout(() => {
           if (!forced) verificarEAgendar();
@@ -133,6 +148,9 @@ module.exports = (client) => {
 
       const transcoder = new prism.FFmpeg({
         args: [
+          "-reconnect", "1",
+          "-reconnect_streamed", "1",
+          "-reconnect_delay_max", "5",
           "-analyzeduration", "0",
           "-loglevel", "0",
           "-i", soundPath,
@@ -140,6 +158,10 @@ module.exports = (client) => {
           "-ar", "48000",
           "-ac", "2"
         ]
+      });
+
+      transcoder.on("error", (err) => {
+        log(`❌ FFmpeg erro: ${err.message}`);
       });
 
       const resource = createAudioResource(transcoder, {
@@ -158,12 +180,7 @@ module.exports = (client) => {
 
       player.once(AudioPlayerStatus.Idle, () => {
         log(`✅ Som finalizado: ${path.basename(soundPath)}`);
-
-        try {
-          connection.destroy();
-        } catch {}
-
-        isPlaying = false;
+        stopCurrentAudio();
 
         setTimeout(() => {
           if (!forced) verificarEAgendar();
@@ -171,12 +188,9 @@ module.exports = (client) => {
       });
 
       return { ok: true, file: path.basename(soundPath) };
-
     } catch (err) {
       log(`❌ Erro ao tocar som: ${err.message}`);
-
-      isPlaying = false;
-
+      stopCurrentAudio();
       return { ok: false, error: err.message };
     }
   }
@@ -217,7 +231,6 @@ module.exports = (client) => {
           verificarEAgendar();
         }
       }, delay);
-
     } else {
       cancelSchedule();
     }
@@ -302,9 +315,15 @@ module.exports = (client) => {
       return message.reply(`🧪 Testando som: \`${result.file}\``);
     }
 
+    if (cmd === "!parar") {
+      stopCurrentAudio();
+      return message.reply("🛑 Som parado.");
+    }
+
     if (cmd === "!somoff") {
       systemEnabled = false;
       cancelSchedule();
+      stopCurrentAudio();
       return message.reply("🛑 Sistema de sons automáticos desativado.");
     }
 
@@ -312,6 +331,15 @@ module.exports = (client) => {
       systemEnabled = true;
       verificarEAgendar();
       return message.reply("✅ Sistema de sons automáticos ativado.");
+    }
+
+    if (cmd === "!lista") {
+      const sounds = getAllSounds();
+      if (!sounds.length) {
+        return message.reply("❌ Nenhum som encontrado.");
+      }
+
+      return message.reply(`🎵 Sons disponíveis:\n\`${sounds.map(s => path.parse(s).name).join(", ")}\``);
     }
   });
 };
