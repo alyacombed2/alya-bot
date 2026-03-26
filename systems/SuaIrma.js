@@ -3,172 +3,193 @@ const path = require("path");
 const prism = require("prism-media");
 const ffmpegStatic = require('ffmpeg-static');
 
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, 
-        AudioPlayerStatus, NoSubscriberBehavior, VoiceConnectionStatus, 
-        entersState, StreamType } = require("@discordjs/voice");
+const { 
+  joinVoiceChannel, 
+  createAudioPlayer, 
+  createAudioResource, 
+  AudioPlayerStatus, 
+  VoiceConnectionStatus, 
+  entersState, 
+  StreamType,
+  NoSubscriberBehavior
+} = require("@discordjs/voice");
 
 module.exports = (client) => {
-  const SOUND_FOLDER = path.join(__dirname, "Sounds");
+  const SOUNDS_PATH = path.join(__dirname, "Sounds");
   const OWNER_ID = "1372615579407618209";
 
-  let currentConnection = null;
-  let currentPlayer = null;
-  let isPlaying = false;
+  let connection = null;
+  let player = null;
+  let isBusy = false;
 
-  function log(msg) {
-    console.log(`[🎵] ${new Date().toLocaleTimeString()} ${msg}`);
-  }
+  console.log("[🎵] 🔄 Inicializando sistema de sons...");
 
-  function getSounds() {
+  // Lista sons
+  function listSounds() {
     try {
-      return fs.readdirSync(SOUND_FOLDER)
-        .filter(f => f.endsWith('.ogg'))
-        .map(f => path.join(SOUND_FOLDER, f));
-    } catch {
+      const files = fs.readdirSync(SOUNDS_PATH).filter(f => f.endsWith('.ogg'));
+      console.log(`[🎵] 📁 ${files.length} sons encontrados`);
+      return files;
+    } catch (e) {
+      console.log("[🎵] ❌ Pasta Sounds não encontrada");
       return [];
     }
   }
 
-  function cleanup() {
-    currentPlayer?.stop(true);
-    currentConnection?.destroy();
-    currentPlayer = null;
-    currentConnection = null;
-    isPlaying = false;
+  // Para tudo
+  function stopAll() {
+    if (player) player.stop(true);
+    if (connection) connection.destroy();
+    player = connection = null;
+    isBusy = false;
+    console.log("[🎵] 🛑 Parado");
   }
 
-  // 🎵 FFmpeg PERFEITO para .ogg
-  function createPerfectResource(soundPath) {
-    log(`🔧 ${path.basename(soundPath)}`);
+  // Cria áudio com FFmpeg
+  function createAudio(file) {
+    const filePath = path.join(SOUNDS_PATH, file);
+    console.log(`[🎵] 🎧 Processando ${file}`);
     
-    const process = new prism.FFmpeg({
+    const ffmpegArgs = [
+      '-i', filePath,
+      '-f', 's16le',
+      '-ar', '48000',
+      '-ac', '2',
+      '-loglevel', 'quiet'
+    ];
+
+    const ffmpegProcess = new prism.FFmpeg({
       path: ffmpegStatic,
-      args: [
-        '-ss', '0',           // Sem delay
-        '-i', soundPath,      // Input
-        '-f', 's16le',        // Formato raw
-        '-ar', '48000',       // Sample rate Discord
-        '-ac', '2',           // Stereo
-        '-vn',                // Sem vídeo
-        '-loglevel', 'quiet'  // Silêncio
-      ]
+      args: ffmpegArgs
     });
 
-    return createAudioResource(process, {
+    const resource = createAudioResource(ffmpegProcess, {
       inputType: StreamType.Raw,
       inlineVolume: true
     });
-  }
 
-  async function playSound(channel, soundPath) {
-    if (isPlaying) throw new Error("Já tocando");
-
-    isPlaying = true;
-    
-    // Conexão
-    currentConnection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: channel.guild.id,
-      adapterCreator: channel.guild.voiceAdapterCreator,
-    });
-
-    await entersState(currentConnection, VoiceConnectionStatus.Ready, 30000);
-
-    // Player
-    currentPlayer = createAudioPlayer({
-      behaviors: { noSubscriber: NoSubscriberBehavior.Play }
-    });
-
-    currentConnection.subscribe(currentPlayer);
-
-    // 🔥 RESOURCE PERFEITO
-    const resource = createPerfectResource(soundPath);
     resource.volume.setVolume(1.0);
-    
-    currentPlayer.play(resource);
-
-    log("▶️ TOCANDO!");
-
-    // Cleanup automático
-    return new Promise(resolve => {
-      const onIdle = () => {
-        log("✅ ACABOU");
-        cleanup();
-        resolve(true);
-      };
-
-      currentPlayer.once(AudioPlayerStatus.Idle, onIdle);
-      
-      // Fallback 60s
-      setTimeout(() => {
-        log("⏰ FIM FORÇADO");
-        currentPlayer.removeListener(AudioPlayerStatus.Idle, onIdle);
-        cleanup();
-        resolve(false);
-      }, 60000);
-    });
+    return resource;
   }
 
-  // 👑 COMANDOS
-  client.on("messageCreate", async msg => {
-    if (msg.author.id !== OWNER_ID || msg.author.bot) return;
-    
-    const args = msg.content.trim().split(/\s+/);
-    const cmd = args[0]?.toLowerCase();
-    const arg = args[1];
+  // Toca som
+  async function playSound(voiceChannel, filename) {
+    if (isBusy) return false;
 
-    const channel = msg.member?.voice.channel || 
-                   msg.guild.channels.cache.get("1476321416470335659");
+    isBusy = true;
+    stopAll();
 
-    if (!channel?.isVoiceBased()) {
-      return msg.reply("❌ **Entre em uma call primeiro**");
-    }
-
-    // !lista
-    if (cmd === "!lista") {
-      const sounds = getSounds();
-      const names = sounds.map(s => path.parse(s).name);
-      msg.reply(`🎵 **${names.length} sons**:\n\`${names.join(', ')}\``);
-      return;
-    }
-
-    // !tocar
-    if (cmd === "!tocar") {
-      const sounds = getSounds();
-      if (!sounds.length) return msg.reply("❌ **Sem sons na pasta**");
-
-      let sound;
-      if (arg?.toLowerCase() === "aleatorio") {
-        sound = sounds[Math.floor(Math.random() * sounds.length)];
-      } else {
-        sound = sounds.find(s => path.parse(s).name === arg);
-      }
-
-      if (!sound) {
-        return msg.reply(`❌ **${arg || 'aleatorio'} inválido**\n\`!lista\` pra ver`);
-      }
-
-      msg.reply(`🎶 **${path.parse(sound).name}** carregando...`);
-
-      const success = await playSound(channel, sound);
+    try {
+      console.log(`[🎵] 🔗 Conectando ${voiceChannel.name}`);
       
-      msg.reply(success ? 
-        `✅ **${path.parse(sound).name} tocou!** 🎉` : 
-        `❌ **Falhou**`
-      );
-      return;
+      connection = joinVoiceChannel({
+        channelId: voiceChannel.id,
+        guildId: voiceChannel.guild.id,
+        adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+      });
+
+      await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+      console.log("[🎵] ✅ Conectado");
+
+      player = createAudioPlayer({
+        behaviors: {
+          noSubscriber: NoSubscriberBehavior.Play
+        }
+      });
+
+      connection.subscribe(player);
+
+      const resource = createAudio(filename);
+      player.play(resource);
+
+      console.log(`[🎵] ▶️ TOCANDO ${filename}`);
+
+      // Espera acabar
+      await new Promise((resolve) => {
+        const finish = () => {
+          player.off('stateChange', onStateChange);
+          resolve();
+        };
+
+        const onStateChange = (oldState, newState) => {
+          if (newState.status === AudioPlayerStatus.Idle) {
+            console.log(`[🎵] ✅ ${filename} finalizado`);
+            finish();
+          }
+        };
+
+        player.on('stateChange', onStateChange);
+        
+        // Timeout segurança
+        setTimeout(finish, 60000);
+      });
+
+      stopAll();
+      return true;
+
+    } catch (error) {
+      console.log(`[🎵] ❌ Erro: ${error.message}`);
+      stopAll();
+      return false;
+    }
+  }
+
+  // Comandos
+  client.on('messageCreate', async (msg) => {
+    if (msg.author.id !== OWNER_ID || msg.author.bot) return;
+
+    const args = msg.content.trim().split(/\s+/);
+    const command = args[0].toLowerCase();
+    const param = args[1];
+
+    const voiceChannel = msg.member?.voice?.channel;
+    if (!voiceChannel && command !== '!lista') {
+      return msg.reply('❌ **Você precisa estar em uma call**');
     }
 
-    // !parar
-    if (cmd === "!parar") {
-      cleanup();
-      msg.reply("🛑 **Parado**");
-      return;
+    const sounds = listSounds();
+
+    if (command === '!lista') {
+      if (sounds.length === 0) {
+        return msg.reply('❌ **Nenhum arquivo .ogg na pasta `Sounds/`**');
+      }
+      const soundNames = sounds.map(f => f.replace('.ogg', '')).join(', ');
+      msg.reply(`🎵 **${sounds.length} sons**:\n\`${soundNames}\``);
+    }
+
+    else if (command === '!tocar') {
+      if (sounds.length === 0) {
+        return msg.reply('❌ **Sem sons disponíveis**');
+      }
+
+      let selectedSound;
+      if (!param || param.toLowerCase() === 'aleatorio' || param === 'r') {
+        selectedSound = sounds[Math.floor(Math.random() * sounds.length)];
+      } else {
+        selectedSound = sounds.find(f => f.replace('.ogg', '') === param);
+      }
+
+      if (!selectedSound) {
+        return msg.reply(`❌ **${param}** não encontrado\nUse \`!lista\``);
+      }
+
+      msg.reply(`🎶 **Carregando ${selectedSound.replace('.ogg', '')}...**`);
+
+      const success = await playSound(voiceChannel, selectedSound);
+      msg.reply(success ? 
+        `✅ **${selectedSound.replace('.ogg', '')} tocou!** 🎉` : 
+        '❌ **Erro ao tocar**');
+    }
+
+    else if (command === '!parar') {
+      stopAll();
+      msg.reply('🛑 **Parado**');
     }
   });
 
-  client.once("ready", () => {
-    log("✅ ONLINE");
-    log(`📁 ${getSounds().length} sons .ogg`);
+  // Inicialização
+  client.once('ready', () => {
+    listSounds();
+    console.log("[🎵] ✅ Sistema de sons ativo!");
   });
 };
