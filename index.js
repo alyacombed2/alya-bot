@@ -218,6 +218,18 @@ setInterval(async () => {
   }
 }, 1000 * 60 * 30);
 
+setInterval(async () => {
+  try {
+    const canal = await client.channels.fetch(BACKUP_CHANNEL_ID).catch(() => null);
+    if (!canal) return;
+
+    await canal.send("📡 **Container Railway online**");
+    console.log("📡 Mensagem de status do container enviada.");
+  } catch (err) {
+    console.log("❌ Erro ao enviar status do container:", err.message);
+  }
+}, 1000 * 60 * 60);
+
 client.on("messageCreate", async (message) => {
   if (!message.guild || message.author.bot) return;
   if (message.author.id !== OWNER_ID) return;
