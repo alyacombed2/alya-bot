@@ -7,20 +7,25 @@ const {
   AudioPlayerStatus,
   NoSubscriberBehavior,
   VoiceConnectionStatus,
-  entersState
+  entersState,
+  StreamType
 } = require("@discordjs/voice");
+const prism = require("prism-media");
+const ffmpegPath = require("ffmpeg-static");
 
 module.exports = (client) => {
   const TARGET_VOICE_CHANNEL_ID = "1476321416470335659";
   const SOUND_FOLDER = path.join(__dirname, "Sounds");
   const OWNER_ID = "1372615579407618209";
 
-  const MIN_TIME = 10 * 60 * 1000;
-  const MAX_TIME = 20 * 60 * 1000;
+  const MIN_TIME = 60 * 60 * 1000;
+  const MAX_TIME = 120 * 60 * 1000;
 
   let nextTimeout = null;
   let isPlaying = false;
   let systemEnabled = true;
+  let currentConnection = null;
+  let currentPlayer = null;
 
   function log(msg) {
     console.log(`[RANDOM SOUND] ${msg}`);
@@ -36,11 +41,17 @@ module.exports = (client) => {
   }
 
   function getAllSounds() {
-    if (!fs.existsSync(SOUND_FOLDER)) return [];
+    if (!fs.existsSync(SOUND_FOLDER)) {
+      log(`Pasta não encontrada: ${SOUND_FOLDER}`);
+      return [];
+    }
 
-    return fs.readdirSync(SOUND_FOLDER).filter(file =>
+    const files = fs.readdirSync(SOUND_FOLDER).filter(file =>
       [".mp3", ".wav", ".ogg", ".m4a"].includes(path.extname(file).toLowerCase())
     );
+
+    log(`Sons encontrados: ${files.join(", ") || "nenhum"}`);
+    return files;
   }
 
   function getRandomSound() {
@@ -55,9 +66,14 @@ module.exports = (client) => {
     const files = getAllSounds();
     if (!files.length) return null;
 
-    const found = files.find(file => path.parse(file).name === String(nameOrNumber));
-    if (!found) return null;
+    const normalized = String(nameOrNumber).toLowerCase();
 
+    const found = files.find(file => {
+      const parsed = path.parse(file).name.toLowerCase();
+      return parsed === normalized;
+    });
+
+    if (!found) return null;
     return path.join(SOUND_FOLDER, found);
   }
 
@@ -69,8 +85,47 @@ module.exports = (client) => {
     }
   }
 
+  function destroyVoice() {
+    try {
+      if (currentPlayer) {
+        currentPlayer.stop();
+        currentPlayer.removeAllListeners();
+        currentPlayer = null;
+      }
+    } catch {}
+
+    try {
+      if (currentConnection) {
+        currentConnection.destroy();
+        currentConnection = null;
+      }
+    } catch {}
+  }
+
+  function createResourceWithFFmpeg(soundPath) {
+    const ffmpeg = new prism.FFmpeg({
+      args: [
+        "-analyzeduration", "0",
+        "-loglevel", "0",
+        "-i", soundPath,
+        "-f", "s16le",
+        "-ar", "48000",
+        "-ac", "2"
+      ],
+      shell: false,
+      command: ffmpegPath
+    });
+
+    return createAudioResource(ffmpeg, {
+      inputType: StreamType.Raw
+    });
+  }
+
   async function tocarSom(channel, soundPath, forced = false) {
-    if (isPlaying) return { ok: false, error: "Já estou tocando um som agora." };
+    if (isPlaying) {
+      return { ok: false, error: "Já estou tocando um som agora." };
+    }
+
     isPlaying = true;
 
     try {
@@ -81,11 +136,20 @@ module.exports = (client) => {
 
       log(`${forced ? "TOQUE MANUAL" : "TOQUE AUTOMÁTICO"} -> ${path.basename(soundPath)}`);
 
+      destroyVoice();
+
       const connection = joinVoiceChannel({
         channelId: channel.id,
         guildId: channel.guild.id,
         adapterCreator: channel.guild.voiceAdapterCreator,
-        selfDeaf: false
+        selfDeaf: false,
+        selfMute: false
+      });
+
+      currentConnection = connection;
+
+      connection.on("error", (err) => {
+        log(`Erro na conexão de voz: ${err.message}`);
       });
 
       await entersState(connection, VoiceConnectionStatus.Ready, 15000);
@@ -96,17 +160,20 @@ module.exports = (client) => {
         }
       });
 
-      const resource = createAudioResource(soundPath);
+      currentPlayer = player;
+
+      const resource = createResourceWithFFmpeg(soundPath);
 
       connection.subscribe(player);
       player.play(resource);
 
-      player.on(AudioPlayerStatus.Idle, () => {
-        log(`Som finalizado: ${path.basename(soundPath)}`);
-        try {
-          connection.destroy();
-        } catch {}
+      player.on(AudioPlayerStatus.Playing, () => {
+        log(`▶️ Tocando agora: ${path.basename(soundPath)}`);
+      });
 
+      player.on(AudioPlayerStatus.Idle, () => {
+        log(`⏹️ Som finalizado: ${path.basename(soundPath)}`);
+        destroyVoice();
         isPlaying = false;
 
         setTimeout(() => {
@@ -115,11 +182,8 @@ module.exports = (client) => {
       });
 
       player.on("error", (err) => {
-        log(`Erro no player: ${err.message}`);
-        try {
-          connection.destroy();
-        } catch {}
-
+        log(`❌ Erro no player: ${err.message}`);
+        destroyVoice();
         isPlaying = false;
 
         setTimeout(() => {
@@ -129,7 +193,8 @@ module.exports = (client) => {
 
       return { ok: true, file: path.basename(soundPath) };
     } catch (err) {
-      log(`Erro ao tocar som: ${err.message}`);
+      log(`❌ Erro ao tocar som: ${err.message}`);
+      destroyVoice();
       isPlaying = false;
       return { ok: false, error: err.message };
     }
@@ -158,7 +223,10 @@ module.exports = (client) => {
       nextTimeout = setTimeout(async () => {
         nextTimeout = null;
 
-        const updatedChannel = guild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
+        const updatedGuild = client.guilds.cache.first();
+        if (!updatedGuild) return;
+
+        const updatedChannel = updatedGuild.channels.cache.get(TARGET_VOICE_CHANNEL_ID);
         if (!updatedChannel || !updatedChannel.isVoiceBased()) return;
 
         const updatedHumans = getHumanMembers(updatedChannel);
@@ -171,7 +239,6 @@ module.exports = (client) => {
           verificarEAgendar();
         }
       }, delay);
-
     } else {
       cancelSchedule();
     }
@@ -179,6 +246,7 @@ module.exports = (client) => {
 
   client.once("clientReady", () => {
     log("Sistema de sons aleatórios iniciado.");
+    log(`Pasta de sons: ${SOUND_FOLDER}`);
 
     setInterval(() => {
       verificarEAgendar();
@@ -213,7 +281,6 @@ module.exports = (client) => {
       }
 
       const escolha = args[1];
-
       let soundPath = null;
 
       if (!escolha || escolha.toLowerCase() === "aleatorio") {
@@ -244,6 +311,7 @@ module.exports = (client) => {
       }
 
       const soundPath = getRandomSound();
+
       if (!soundPath) {
         return message.reply("❌ Nenhum som encontrado na pasta `systems/Sounds`.");
       }
@@ -260,6 +328,7 @@ module.exports = (client) => {
     if (cmd === "!somoff") {
       systemEnabled = false;
       cancelSchedule();
+      destroyVoice();
       return message.reply("🛑 Sistema de sons automáticos desativado.");
     }
 
@@ -267,6 +336,18 @@ module.exports = (client) => {
       systemEnabled = true;
       verificarEAgendar();
       return message.reply("✅ Sistema de sons automáticos ativado.");
+    }
+
+    if (cmd === "!listsons") {
+      const files = getAllSounds();
+
+      if (!files.length) {
+        return message.reply("❌ Nenhum som encontrado em `systems/Sounds`.");
+      }
+
+      return message.reply(
+        `🎵 Sons encontrados:\n\`\`\`\n${files.join("\n")}\n\`\`\``
+      );
     }
   });
 };
